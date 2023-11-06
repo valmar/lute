@@ -30,8 +30,8 @@ from typing import List, Dict, Iterator, Dict, Any, Union
 import yaml
 from pydantic import BaseModel, ValidationError
 
-
-####################
+# Parameter models
+##################
 class TaskParameters(BaseModel):
     ...
 
@@ -79,7 +79,6 @@ def parse_config(task_name: str = "test", config_path: str = "") -> TaskParamete
         Raised if there are problems with the configuration file.
     """
     task_config_name: str = f"{task_name}Parameters"
-    # target_config: TaskConfig = globals()[task_config_name]()
 
     with open(config_path, "r") as f:
         docs: Iterator[Dict[str, Any]] = yaml.load_all(stream=f, Loader=yaml.FullLoader)
