@@ -1,27 +1,24 @@
-"""
-Machinary for the IO of configuration YAML files and their validation.
+"""Machinary for the IO of configuration YAML files and their validation.
 
-Classes
--------
-TaskParameters(BaseModel)
-    Base class for Task parameters.
-FindOverlapXSSParameters(TaskParameters)
-    Parameter model for the FindOverlapXSS Task.
+Classes:
+    TaskParameters(BaseModel): Base class for Task parameters. Subclasses
+        specify a model of parameters and their types for validation.
 
-Functions
----------
-parse_config(taskname: str, config_path: str) -> TaskParameters
-    Parse a configuration file and return a TaskParameters object of
-    validated parameters for a specific Task. Raises an exception if the
-    provided configuration does not match the expected model.
+    FindOverlapXSSParameters(TaskParameters): Parameter model for the
+        FindOverlapXSS Task.
 
-Exceptions
-----------
-ValidationError
-    Error raised by pydantic during data validation.
+Functions:
+    parse_config(taskname: str, config_path: str) -> TaskParameters: Parse a
+        configuration file and return a TaskParameters object of validated
+        parameters for a specific Task. Raises an exception if the provided
+        configuration does not match the expected model.
+
+Exceptions:
+    ValidationError: Error raised by pydantic during data validation. (From
+        Pydantic)
 """
 
-__all__ = ["parse_config"]
+__all__ = ["parse_config", "TaskParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 from abc import ABC
@@ -33,10 +30,29 @@ from pydantic import BaseModel, ValidationError
 # Parameter models
 ##################
 class TaskParameters(BaseModel):
+    """Base class for models of task parameters to be validated.
+
+    Parameters are read from a configuration YAML file and validated against
+    subclasses of this type in order to ensure that both all parameters are
+    present, and that the parameters are of the correct type.
+
+    Note:
+        Pydantic is used for data validation. Pydantic does not perform "strict"
+        validation by default. Parameter values may be cast to conform with the
+        model specified by the subclass definition if it is possible to do so.
+        Consider whether this may cause issues (e.g. if a float is cast to an
+        int).
+    """
     ...
 
 
 class FindOverlapXSSParameters(TaskParameters):
+    """TaskParameter model for FindOverlapXSS Task.
+
+    This Task determines spatial or temporal overlap between an optical pulse
+    and the FEL pulse based on difference scattering (XSS) signal. This Task
+    uses SmallData HDF5 files as a source.
+    """
     class ExpConfig(BaseModel):
         det_name: str
         ipm_var: str
@@ -60,23 +76,19 @@ class FindOverlapXSSParameters(TaskParameters):
 def parse_config(task_name: str = "test", config_path: str = "") -> TaskParameters:
     """Parse a configuration file and validate the contents.
 
-    Parameters
-    ----------
-    task_name : str
-        Name of the specific task that will be run.
-    config_path : str
-        Path to the configuration file.
+    Args:
+        task_name (str): Name of the specific task that will be run.
 
-    Returns
-    -------
-    params : TaskParameters
-        A TaskParameters object of validated task-specific parameters.
-        Parameters are accessed with "dot" notation. E.g. `params.param1`.
+        config_path (str): Path to the configuration file.
 
-    Raises
-    ------
-    ValidationError
-        Raised if there are problems with the configuration file.
+    Returns:
+        params (TaskParameters): A TaskParameters object of validated
+            task-specific parameters. Parameters are accessed with "dot"
+            notation. E.g. `params.param1`.
+
+    Raises:
+        ValidationError: Raised if there are problems with the configuration
+            file. Passed through from Pydantic.
     """
     task_config_name: str = f"{task_name}Parameters"
 

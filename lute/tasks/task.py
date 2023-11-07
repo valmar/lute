@@ -1,15 +1,14 @@
 """Base classes for implementing analysis tasks.
 
-Classes
--------
-Task
-    Abstract base class from which all analysis tasks are derived.
-TaskResult
-    Output of a specific analysis task.
-TaskStatus
-    Enumeration of possible Task statuses (running, pending, failed, etc.).
-BinaryTask
-    Class to run a third-party executable binary as a `Task`.
+Classes:
+    Task: Abstract base class from which all analysis tasks are derived.
+
+    TaskResult: Output of a specific analysis task.
+
+    TaskStatus: Enumeration of possible Task statuses (running, pending, failed,
+        etc.).
+
+    BinaryTask: Class to run a third-party executable binary as a `Task`.
 """
 
 __all__ = ["Task", "TaskResult", "TaskStatus", "BinaryTask"]
@@ -63,14 +62,13 @@ class TaskResult:
 
     Attributes
     ----------
-    task_name : str
-        Name of the associated task which produced it.
-    task_status : TaskStatus
-        Status of associated task.
-    summary : str
-        Short message/summary associated with the result.
-    payload : Any
-        Actual result. May be data in any format.
+        task_name (str): Name of the associated task which produced it.
+
+        task_status (TaskStatus): Status of associated task.
+
+        summary (str): Short message/summary associated with the result.
+
+        payload (Any): Actual result. May be data in any format.
     """
 
     task_name: str
@@ -82,34 +80,18 @@ class TaskResult:
 class Task(ABC):
     """Abstract base class for analysis tasks.
 
-    Attributes
-    ----------
-    name : str
-        The name of this task. Derived from the string representation of the
-        class name, unless overridden.
-    result
-    status
-
-    Methods
-    -------
-    run()
-        Execute the Task's code.
+    Attributes:
+        name (str): The name of the Task.
     """
 
     def __init__(self, *, params: TaskParameters) -> None:
         """Initialize a Task.
 
-        Parameters
-        ----------
-        data : Data
-            An interface to data on which the Task will run code. Instances of
-            Data (or subclasses thereof) can be used in Task-specific ways to
-            access data. Depending on the Task, Data may provide a simple Path
-            to files on disk, data in, e.g., array format, or binary streams.
-        params : TaskParameters
-            Parameters needed to properly configure the analysis task. These
-            are NOT related to execution parameters (number of cores, etc),
-            except, potentially, in case of binary executable sub-classes.
+        Args:
+            params (TaskParameters): Parameters needed to properly configure
+                the analysis task. These are NOT related to execution parameters
+                (number of cores, etc), except, potentially, in case of binary
+                executable sub-classes.
         """
         self.name: str = str(type(self)).split("'")[1].split(".")[-1]
         self._status: TaskStatus = TaskStatus.PENDING
@@ -154,24 +136,12 @@ class Task(ABC):
 
     @property
     def result(self) -> TaskResult:
-        """The current status of the Task.
-
-        Returns
-        -------
-        result : TaskResult
-            A complete summary of task status and results.
-        """
+        """TaskResult: Read-only Task Result information."""
         return self._result
 
     @property
     def status(self) -> TaskStatus:
-        """The current status of the Task.
-
-        Returns
-        -------
-        status : TaskStatus
-            Status of the task. (Enum)
-        """
+        """TaskStatus: The current status of the Task. Read-only"""
         return self._status
 
     def __call__(self) -> None:
@@ -179,30 +149,23 @@ class Task(ABC):
 
 
 class BinaryTask(Task):
-    """A `Task` interface to analysis with binary executables.
-
-    Attributes
-    ----------
-
-    Parameters
-    ----------
-    """
+    """A `Task` interface to analysis with binary executables."""
 
     def __init__(self, *, params: TaskParameters, flag_names: Dict[str, str]) -> None:
         """Initialize a Task.
 
-        Parameters
-        ----------
-        params : TaskParameters
-            Parameters needed to properly configure the analysis task. `Task`s
-            of this type MUST include the name of a binary to run and any
-            arguments which should be passed to it (as would be done via
-            command line).
-        flag_names : Dict[str, str]
-            A dictionary of friendly names and their corresponding command-line
-            flags. E.g. a binary executable which takes a number of cores flag
-            may have a dictionary entry that looks like:
-                flag_names = { "ncores" : "-n" }
+        Args:
+            params (TaskParameters): Parameters needed to properly configure
+                the analysis task. `Task`s of this type MUST include the name
+                of a binary to run and any arguments which should be passed to
+                it (as would be done via command line).
+
+            flag_names (Dict[str, str]): A dictionary of friendly names and
+                their corresponding command-line flags. E.g. a binary executable
+                which takes a number of cores flag may have a dictionary entry
+                that looks like:
+                    * flag_names = { "ncores" : "-n" }
+                flag_names must match the corresponding parameter names.
         """
         super().__init__(params=params)
         self._flag_names: Dict[str, str] = flag_names
