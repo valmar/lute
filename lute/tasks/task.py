@@ -60,8 +60,7 @@ class TaskStatus(Enum):
 class TaskResult:
     """Class for storing the result of a Task's execution with metadata.
 
-    Attributes
-    ----------
+    Attributes:
         task_name (str): Name of the associated task which produced it.
 
         task_status (TaskStatus): Status of associated task.
