@@ -27,6 +27,7 @@ from typing import List, Dict, Iterator, Dict, Any, Union
 import yaml
 from pydantic import BaseModel, ValidationError
 
+
 # Parameter models
 ##################
 class TaskParameters(BaseModel):
@@ -43,6 +44,7 @@ class TaskParameters(BaseModel):
         Consider whether this may cause issues (e.g. if a float is cast to an
         int).
     """
+
     ...
 
 
@@ -53,6 +55,7 @@ class FindOverlapXSSParameters(TaskParameters):
     and the FEL pulse based on difference scattering (XSS) signal. This Task
     uses SmallData HDF5 files as a source.
     """
+
     class ExpConfig(BaseModel):
         det_name: str
         ipm_var: str
