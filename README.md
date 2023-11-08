@@ -15,6 +15,62 @@ A timeline is available in ...
 ## Contributing
 All contributions most proceed through pull (merge) requests (PRs). Please fork the repository and open a PR when ready to merge your contribution. There is a specific PR template (coming soon...) which should be used to describe the nature of the contribution and how it was implemented. Before beginning, please read through the following guidelines regarding code style, naming conventions and general practices.
 
+### Docstrings and Documentation
+Modules, classes, and functions should be documented with docstrings. The [Google style](https://google.github.io/styleguide/pyguide.html) should be followed, with a minor addition - namely, module level docstrings should include a list of public classes, functions, etc. Example usage sections are optional but recommended for clarity. Refer to the link above for the full specification, or below for an abbreviated example.
+```py
+"""This is a module level docstring.
+
+Classes:
+    Class1: Short description
+
+Functions:
+    function1(prototype): Short description
+
+Exceptions:
+    MyException: When/why it is raised.
+
+Example usage:
+    How one might use the classes and functions. Test modules may include how
+        to run them.
+"""
+
+class Class1:
+    """Class descriptions can go here or in __init__.
+
+    Attributes:
+        public_attr (type): Description
+        # properties should be documented separately in their getter.
+    """
+    def __init__(self, arg1: type) -> None:
+        """Description of class can go here.
+
+        Args:
+            param1 (type): Description
+        """
+        ...
+
+    @property
+    def my_property(self) -> type:
+        """type: Property attributes are documented here."""
+        ...
+
+def function1(arg1: type) -> type:
+    """Function description.
+
+    Args:
+        arg1 (type):  Description
+
+    Returns: # Or Yields for generators
+        name (type): Description # Alternatively, can just be `type: Description`
+
+    Raises:
+        MyException: Why?
+    """
+    ...
+```
+
+For documentation generation, [MkDocs](https://www.mkdocs.org/) is used. Docstrings written using the above style guidelines should be parsed correctly for automatically generated documentation.
+
 ### Branch Conventions
 For development of new features on your personal forks of the repository, please try to follow the following naming convention for your branches: `{ACRONYM}/{description}`. Please see below, under commit messages, for the relevant acronyms. For example, a PR implementing a new feature which produces summaries in the eLog may be called: `ENH/elog_summaries`.
 
