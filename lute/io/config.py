@@ -25,12 +25,12 @@ from abc import ABC
 from typing import List, Dict, Iterator, Dict, Any, Union
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, BaseSettings, ValidationError
 
 
 # Parameter models
 ##################
-class TaskParameters(BaseModel):
+class TaskParameters(BaseSettings):
     """Base class for models of task parameters to be validated.
 
     Parameters are read from a configuration YAML file and validated against
@@ -45,7 +45,8 @@ class TaskParameters(BaseModel):
         int).
     """
 
-    ...
+    class Config:
+        env_prefix = "LUTE_"
 
 
 class FindOverlapXSSParameters(TaskParameters):
