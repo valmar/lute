@@ -150,33 +150,33 @@ class Task(ABC):
 class BinaryTask(Task):
     """A `Task` interface to analysis with binary executables."""
 
-    def __init__(self, *, params: TaskParameters, flag_names: Dict[str, str]) -> None:
+    def __init__(self, *, params: TaskParameters) -> None:
         """Initialize a Task.
 
         Args:
             params (TaskParameters): Parameters needed to properly configure
                 the analysis task. `Task`s of this type MUST include the name
                 of a binary to run and any arguments which should be passed to
-                it (as would be done via command line).
-
-            flag_names (Dict[str, str]): A dictionary of friendly names and
-                their corresponding command-line flags. E.g. a binary executable
-                which takes a number of cores flag may have a dictionary entry
-                that looks like:
+                it (as would be done via command line). In addition, a special
+                parameter `flag_names` (Dict[str, str]) should be included.
+                This is a dictionary of friendly names and their corresponding
+                command-line flags. E.g. a binary executable which takes a
+                number of cores flag may have a dictionary entrythat looks
+                like:
                     * flag_names = { "ncores" : "-n" }
-                flag_names must match the corresponding parameter names.
+                flag_names must match the corresponding parameter names listed
+                in the rest of the TaskParameters object.
         """
         super().__init__(params=params)
-        self._flag_names: Dict[str, str] = flag_names
-        self._cmd = self._task_parameters.pop("executable")
+        self._cmd = self._task_parameters.executable
         self._args_list: List[str] = []
 
     def _pre_run(self):
         """Prepare the list of flags and arguments to be executed."""
         super()._pre_run()
-        for param, value in self._task_parameters:
-            self._args_list.append(self._flag_names[str(param)])
-            self._args_list.append(str(value))
+        for friendly_name, flag in self._task_parameters.flag_names.items():
+            self._args_list.append(flag)
+            self._args_list.append(getattr(self._task_parameters, friendly_name))
 
     def _run(self):
         """Execute the new program by replacing the current process."""

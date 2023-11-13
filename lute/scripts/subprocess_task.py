@@ -13,7 +13,7 @@ else:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-parser = argparse.ArgumentParser(
+parser: argparse.ArgumentParser = argparse.ArgumentParser(
     prog="LUTE Task",
     description="Analysis Task run as a subprocess managed by a LUTE Executor.",
     epilog="Refer to https://github.com/slac-lcls/lute for more information.",
