@@ -14,6 +14,7 @@ Classes:
 __all__ = ["Task", "TaskResult", "TaskStatus", "BinaryTask"]
 __author__ = "Gabriel Dorlhiac"
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, List, Dict
@@ -21,6 +22,7 @@ from enum import Enum
 import os
 
 from ..io.config import TaskParameters
+from ..execution.ipc import Message, PipeCommunicator
 
 
 class TaskStatus(Enum):
@@ -93,11 +95,14 @@ class Task(ABC):
                 executable sub-classes.
         """
         self.name: str = str(type(self)).split("'")[1].split(".")[-1]
-        self._status: TaskStatus = TaskStatus.PENDING
         self._result: TaskResult = TaskResult(
-            task_name=self.name, task_status=self.status, summary="PENDING", payload=""
+            task_name=self.name,
+            task_status=TaskStatus.PENDING,
+            summary="PENDING",
+            payload="",
         )
         self._task_parameters = params
+        self._communicator = PipeCommunicator()
 
     def run(self) -> None:
         """Calls the analysis routines and any pre/post task functions.
@@ -105,9 +110,11 @@ class Task(ABC):
         This method is part of the public API and should not need to be modified
         in any subclasses.
         """
+        self._signal_start()
         self._pre_run()
         self._run()
         self._post_run()
+        self._signal_result()
 
     @abstractmethod
     def _run(self) -> None:
@@ -138,13 +145,23 @@ class Task(ABC):
         """TaskResult: Read-only Task Result information."""
         return self._result
 
-    @property
-    def status(self) -> TaskStatus:
-        """TaskStatus: The current status of the Task. Read-only"""
-        return self._status
-
     def __call__(self) -> None:
         self.run()
+
+    def _signal_start(self) -> None:
+        """Send the signal that the Task will begin shortly."""
+        start_msg: Message = Message(
+            contents=self._task_parameters, signal="TASK_STARTED"
+        )
+        self._result.task_status = TaskStatus.RUNNING
+        self._communicator.write(start_msg)
+
+    def _signal_result(self) -> None:
+        """Send the signal that results are ready along with the results."""
+        signal: str = "TASK_RESULT"
+        results_msg: Message = Message(contents=self.result, signal=signal)
+        self._communicator.write(results_msg)
+        time.sleep(0.1)
 
 
 class BinaryTask(Task):

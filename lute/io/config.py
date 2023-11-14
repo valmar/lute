@@ -49,6 +49,19 @@ class TaskParameters(BaseSettings):
         env_prefix = "LUTE_"
 
 
+class TestParameters(TaskParameters):
+    """Parameters for the test Task `Test`."""
+
+    float_var: float = 0.01
+    str_var: str = "test"
+
+    class CompoundVar(BaseModel):
+        int_var: int = 1
+        dict_var: Dict[str, str] = {"a": "b"}
+
+    compound_var: CompoundVar
+
+
 class FindOverlapXSSParameters(TaskParameters):
     """TaskParameter model for FindOverlapXSS Task.
 

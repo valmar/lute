@@ -4,7 +4,7 @@ import logging
 from typing import Type
 
 from lute.io.config import *
-import lute.tasks as tasks
+from lute import tasks
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)
