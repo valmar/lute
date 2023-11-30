@@ -248,7 +248,7 @@ class BaseExecutor(ABC):
         """Run the requested Task as a subprocess."""
         executable_path: str = "subprocess_task.py"
         config_path: str = self._config.task_env["LUTE_CONFIGPATH"]
-        params: str = f"-c {config_path} " f"-t {self._config.task_result.task_name} "
+        params: str = f"-c {config_path} -t {self._config.task_result.task_name}"
 
         cmd: str = ""
         if __debug__:
@@ -360,8 +360,8 @@ class Executor(BaseExecutor):
         def task_result(self: Self, msg: Message):
             if isinstance(msg.contents, TaskResult):
                 self._config.task_result = msg.contents
-                print(self._config.task_result.summary)
-                print(self._config.task_result.task_status)
+                logger.info(self._config.task_result.summary)
+                logger.info(self._config.task_result.task_status)
 
         self.add_hook("task_result", task_result)
 

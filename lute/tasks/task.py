@@ -17,12 +17,13 @@ __author__ = "Gabriel Dorlhiac"
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, List, Dict
+from typing import Any, List
 from enum import Enum
 import os
+import sys
 
 from ..io.config import TaskParameters
-from ..execution.ipc import Message, PipeCommunicator
+from ..execution.ipc import *
 
 
 class TaskStatus(Enum):
@@ -102,7 +103,6 @@ class Task(ABC):
             payload="",
         )
         self._task_parameters = params
-        self._communicator = PipeCommunicator()
 
     def run(self) -> None:
         """Calls the analysis routines and any pre/post task functions.
@@ -154,14 +154,26 @@ class Task(ABC):
             contents=self._task_parameters, signal="TASK_STARTED"
         )
         self._result.task_status = TaskStatus.RUNNING
-        self._communicator.write(start_msg)
+        self._report_to_executor(start_msg)
 
     def _signal_result(self) -> None:
         """Send the signal that results are ready along with the results."""
         signal: str = "TASK_RESULT"
         results_msg: Message = Message(contents=self.result, signal=signal)
-        self._communicator.write(results_msg)
+        self._report_to_executor(results_msg)
         time.sleep(0.1)
+
+    def _report_to_executor(self, msg: Message) -> None:
+        """Send a message to the Executor.
+
+        Details of `Communicator` choice are hidden from the caller.
+        """
+        communicator: Communicator
+        if sys.getsizeof(msg) > 6e4:
+            communicator = SocketCommunicator()
+        else:
+            communicator = PipeCommunicator()
+        communicator.write(msg)
 
 
 class BinaryTask(Task):

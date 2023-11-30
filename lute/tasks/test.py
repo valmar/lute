@@ -16,13 +16,12 @@ class Test(Task):
 
     def __init__(self, *, params: TaskParameters) -> None:
         super().__init__(params=params)
-        self._communicator = PipeCommunicator()
 
     def _run(self) -> None:
         for i in range(10):
             time.sleep(1)
             msg: Message = Message(contents=f"Test message {i}")
-            self._communicator.write(msg)
+            self._report_to_executor(msg)
 
     def _post_run(self) -> None:
         self._result.summary = "Test Finished."

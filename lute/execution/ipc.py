@@ -23,7 +23,14 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
 
-__all__ = ["Party", "Message", "Communicator", "PipeCommunicator", "LUTE_SIGNALS"]
+__all__ = [
+    "Party",
+    "Message",
+    "Communicator",
+    "PipeCommunicator",
+    "LUTE_SIGNALS",
+    "SocketCommunicator",
+]
 __author__ = "Gabriel Dorlhiac"
 
 LUTE_SIGNALS: Set[str] = {
