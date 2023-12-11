@@ -166,7 +166,8 @@ class Task(ABC):
     def _report_to_executor(self, msg: Message) -> None:
         """Send a message to the Executor.
 
-        Details of `Communicator` choice are hidden from the caller.
+        Details of `Communicator` choice are hidden from the caller. This
+        method may be overriden by subclasses with specialized functionality.
         """
         communicator: Communicator
         if sys.getsizeof(msg) > 6e4:
@@ -191,9 +192,9 @@ class BinaryTask(Task):
                 assumed to be the long/extended names of the flag passed on the
                 command line:
                     * `arg_name = 3` is converted to `--arg_name 3`
-                Positional arguments can be included with `_argN` where `N` is
+                Positional arguments can be included with `p_argN` where `N` is
                 any integer:
-                    * `_arg1 = 3` is converted to `3`
+                    * `p_arg1 = 3` is converted to `3`
         """
         super().__init__(params=params)
         self._cmd = self._task_parameters.executable
@@ -207,7 +208,7 @@ class BinaryTask(Task):
         for param, value in self._task_parameters.dict().items():
             if param == "executable":
                 continue
-            if "_arg" in param:
+            if "p_arg" in param:
                 # _arg indicates a positional argument, so no flag
                 self._args_list.append(f"{value}")
             else:
