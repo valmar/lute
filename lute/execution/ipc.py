@@ -34,6 +34,7 @@ __all__ = [
 __author__ = "Gabriel Dorlhiac"
 
 LUTE_SIGNALS: Set[str] = {
+    "NO_PICKLE_MODE",
     "TASK_STARTED",
     "TASK_FAILED",
     "TASK_STOPPED",
@@ -68,16 +69,27 @@ class Message:
 
 
 class Communicator(ABC):
-    def __init__(self, party: Party = Party.TASK) -> None:
+    def __init__(self, party: Party = Party.TASK, use_pickle: bool = True) -> None:
+        """Abstract Base Class for IPC Communicator objects.
+
+        Args:
+            party (Party): Which object (side/process) the Communicator is
+                managing IPC for. I.e., is this the "Task" or "Executor" side.
+            use_pickle (bool): Whether to serialize data using pickle prior to
+                sending it.
+        """
         self._party = party
+        self._use_pickle = use_pickle
         self.desc = "Communicator abstract base class."
 
     @abstractmethod
     def read(self, stdout: _io.BufferedReader, stderr: _io.BufferedReader) -> Message:
+        """Method for reading data through the communication mechanism."""
         ...
 
     @abstractmethod
     def write(self, msg: Message) -> None:
+        """Method for sending data through the communication mechanism."""
         ...
 
     def __str__(self):
@@ -96,8 +108,19 @@ class PipeCommunicator(Communicator):
     `Executor` will be reading. `stderr` is used for sending signals.
     """
 
-    def __init__(self, party: Party = Party.TASK) -> None:
-        super().__init__(party=party)
+    def __init__(self, party: Party = Party.TASK, use_pickle: bool = True) -> None:
+        """IPC through pipes.
+
+        Arbitrary objects may be transmitted using pickle to serialize the data.
+        If pickle is not used
+
+        Args:
+            party (Party): Which object (side/process) the Communicator is
+                managing IPC for. I.e., is this the "Task" or "Executor" side.
+            use_pickle (bool): Whether to serialize data using Pickle prior to
+                sending it. If False, data is assumed to be text whi
+        """
+        super().__init__(party=party, use_pickle=use_pickle)
         self.desc = "Communicates through stderr and stdout using pickle."
 
     def read(self, proc: subprocess.Popen) -> Message:
@@ -106,29 +129,61 @@ class PipeCommunicator(Communicator):
         Args:
             proc (subprocess.Popen): The process to read from.
         """
-        signal: str = proc.stderr.readline().decode()
-        raw_contents: bytes = proc.stdout.read()
-        if raw_contents:
-            contents: Any = pickle.loads(raw_contents)
+        if self._use_pickle:
+            signal: str = proc.stderr.readline().decode()
+            raw_contents: bytes = proc.stdout.read()
+            if raw_contents:
+                contents: Any = pickle.loads(raw_contents)
+            else:
+                contents = ""
         else:
-            contents = ""
+            signal: str = proc.stderr.readline()
+            contents: str = proc.stdout.readline()
 
+            if signal and signal not in LUTE_SIGNALS:
+                # Some tasks write on stderr
+                # If the signal channel has "non-signal" info, add it to
+                # contents
+                contents += signal
+                signal = ""
         return Message(contents=contents, signal=signal)
 
     def write(self, msg: Message) -> None:
-        signal: bytes
-        if msg.signal:
-            signal = msg.signal.encode()
+        if self._use_pickle:
+            signal: bytes
+            if msg.signal:
+                signal = msg.signal.encode()
+            else:
+                signal = b""
+
+            contents: bytes = pickle.dumps(msg.contents)
+
+            sys.stderr.buffer.write(signal)
+            sys.stdout.buffer.write(contents)
+
+            sys.stderr.buffer.flush()
+            sys.stdout.buffer.flush()
         else:
-            signal = b""
+            raw_signal: str
+            if msg.signal:
+                raw_signal = msg.signal
+            else:
+                raw_signal = ""
 
-        contents: bytes = pickle.dumps(msg.contents)
+            raw_contents: str
+            if isinstance(msg.contents, str):
+                raw_contents = msg.contents
+            elif msg.contents is None:
+                raw_contents = ""
+            else:
+                raise ValueError(
+                    f"Cannot send msg contents of type: {type(msg.contents)} when not using pickle!"
+                )
+            sys.stderr.write(raw_signal)
+            sys.stdout.write(raw_contents)
 
-        sys.stderr.buffer.write(signal)
-        sys.stdout.buffer.write(contents)
-
-        sys.stderr.buffer.flush()
-        sys.stdout.buffer.flush()
+            sys.stderr.flush()
+            sys.stdout.flush()
 
 
 class SocketCommunicator(Communicator):
@@ -143,7 +198,17 @@ class SocketCommunicator(Communicator):
     """
 
     def __init__(self, party: Party = Party.TASK) -> None:
-        raise NotImplementedError
+        """IPC over a Unix socket.
+
+        Unlike with the PipeCommunicator, pickle is always used to send data
+        through the socket.
+
+        Args:
+            party (Party): Which object (side/process) the Communicator is
+                managing IPC for. I.e., is this the "Task" or "Executor" side.
+        """
+        super().__init__(party=party)
+        self.desc = "Communicates through a Unix socket.."
 
     def read(self, proc: subprocess.Popen) -> Message:
         ...

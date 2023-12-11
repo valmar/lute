@@ -198,7 +198,7 @@ class BinaryTask(Task):
         """
         super().__init__(params=params)
         self._cmd = self._task_parameters.executable
-        self._args_list: List[str] = []
+        self._args_list: List[str] = [self._cmd]
 
     def _pre_run(self):
         """Prepare the list of flags and arguments to be executed."""
@@ -209,7 +209,7 @@ class BinaryTask(Task):
             if param == "executable":
                 continue
             if "p_arg" in param:
-                # _arg indicates a positional argument, so no flag
+                # p_arg indicates a positional argument, so no flag
                 self._args_list.append(f"{value}")
             else:
                 self._args_list.append(f"--{param}")
@@ -218,3 +218,11 @@ class BinaryTask(Task):
     def _run(self):
         """Execute the new program by replacing the current process."""
         os.execvp(file=self._cmd, args=self._args_list)
+
+    def _signal_start(self) -> None:
+        """Override start signal method to swtich communication methods."""
+        super()._signal_start()
+        time.sleep(0.05)
+        signal: str = "NO_PICKLE_MODE"
+        msg: Message = Message(signal=signal)
+        self._report_to_executor(msg)

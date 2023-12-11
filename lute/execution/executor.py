@@ -90,6 +90,9 @@ class BaseExecutor(ABC):
         signal.
         """
 
+        def no_pickle_mode(self: Self, msg: Message):
+            ...
+
         def task_started(self: Self, msg: Message):
             ...
 
@@ -329,6 +332,13 @@ class Executor(BaseExecutor):
 
     def add_default_hooks(self) -> None:
         """Populate the set of default event hooks."""
+
+        def no_pickle_mode(self: Self, msg: Message):
+            for idx, communicator in enumerate(self._communicators):
+                if isinstance(communicator, PipeCommunicator):
+                    self._communicators[idx] = PipeCommunicator(Party.EXECUTOR, use_pickle=False)
+
+        self.add_hook("no_pickle_mode", no_pickle_mode)
 
         def task_started(self: Self, msg: Message):
             if isinstance(msg.contents, TaskParameters):
