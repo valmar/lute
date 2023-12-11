@@ -186,15 +186,14 @@ class BinaryTask(Task):
             params (TaskParameters): Parameters needed to properly configure
                 the analysis task. `Task`s of this type MUST include the name
                 of a binary to run and any arguments which should be passed to
-                it (as would be done via command line). In addition, a special
-                parameter `flag_names` (Dict[str, str]) should be included.
-                This is a dictionary of friendly names and their corresponding
-                command-line flags. E.g. a binary executable which takes a
-                number of cores flag may have a dictionary entrythat looks
-                like:
-                    * flag_names = { "ncores" : "-n" }
-                flag_names must match the corresponding parameter names listed
-                in the rest of the TaskParameters object.
+                it (as would be done via command line). The binary is included
+                with the parameter `executable`. All other parameter names are
+                assumed to be the long/extended names of the flag passed on the
+                command line:
+                    * `arg_name = 3` is converted to `--arg_name 3`
+                Positional arguments can be included with `_argN` where `N` is
+                any integer:
+                    * `_arg1 = 3` is converted to `3`
         """
         super().__init__(params=params)
         self._cmd = self._task_parameters.executable
@@ -203,9 +202,17 @@ class BinaryTask(Task):
     def _pre_run(self):
         """Prepare the list of flags and arguments to be executed."""
         super()._pre_run()
-        for friendly_name, flag in self._task_parameters.flag_names.items():
-            self._args_list.append(flag)
-            self._args_list.append(getattr(self._task_parameters, friendly_name))
+        # We assume no compound/nested parameters for these Task types
+        # I.e. no parameters like: param = {"a": 1, "b": 2}, etc..
+        for param, value in self._task_parameters.dict().items():
+            if param == "executable":
+                continue
+            if "_arg" in param:
+                # _arg indicates a positional argument, so no flag
+                self._args_list.append(f"{value}")
+            else:
+                self._args_list.append(f"--{param}")
+                self._args_list.append(f"{value}")
 
     def _run(self):
         """Execute the new program by replacing the current process."""
