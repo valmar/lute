@@ -336,7 +336,9 @@ class Executor(BaseExecutor):
         def no_pickle_mode(self: Self, msg: Message):
             for idx, communicator in enumerate(self._communicators):
                 if isinstance(communicator, PipeCommunicator):
-                    self._communicators[idx] = PipeCommunicator(Party.EXECUTOR, use_pickle=False)
+                    self._communicators[idx] = PipeCommunicator(
+                        Party.EXECUTOR, use_pickle=False
+                    )
 
         self.add_hook("no_pickle_mode", no_pickle_mode)
 
@@ -383,10 +385,10 @@ class Executor(BaseExecutor):
         """
         for communicator in self._communicators:
             msg: Message = communicator.read(proc)
-            if msg.signal.upper() in LUTE_SIGNALS:
+            if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
                 hook: Callable[[None], None] = getattr(self.Hooks, msg.signal.lower())
                 hook(self, msg)
-            if msg.contents:
+            if msg.contents is not None and msg.contents != "":
                 logger.info(msg.contents)
 
     def _finalize_task(self, proc: subprocess.Popen) -> None:
@@ -395,4 +397,4 @@ class Executor(BaseExecutor):
         Examples include a final clearing of the pipes, retrieving results,
         reporting to third party services, etc.
         """
-        ...
+        self._task_loop(proc) # Perform a final read.
