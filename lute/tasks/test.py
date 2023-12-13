@@ -44,7 +44,7 @@ class TestSocket(Task):
         super().__init__(params=params)
 
     def _run(self) -> None:
-        for i in range(self._task_parameters.array_size):
+        for i in range(self._task_parameters.num_arrays):
             msg: Message = Message(contents=f"Sending array {i}")
             self._report_to_executor(msg)
             time.sleep(0.05)
