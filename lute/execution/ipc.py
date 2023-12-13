@@ -221,7 +221,7 @@ class SocketCommunicator(Communicator):
     send data, and immediately close and clean up.
     """
 
-    READ_TIMEOUT: float = 0.05
+    READ_TIMEOUT: float = 0.01
     """
     Maximum time to wait to retrieve data.
     """
