@@ -152,7 +152,9 @@ class PipeCommunicator(Communicator):
             signal: bytes = proc.stderr.read()
             if signal is not None:
                 signal: str = signal.decode()
-            contents: str = proc.stdout.read().decode()
+            contents: bytes = proc.stdout.read()
+            if contents is not None:
+                contents: str = contents.decode()
 
             if signal and signal not in LUTE_SIGNALS:
                 # Some tasks write on stderr
