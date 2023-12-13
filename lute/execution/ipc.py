@@ -28,8 +28,7 @@ import sys
 import socket
 import pickle
 import subprocess
-import threading
-import queue
+import select
 from typing import Optional, Any, Set
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -44,6 +43,7 @@ LUTE_SIGNALS: Set[str] = {
     "TASK_CANCELLED",
     "TASK_RESULT",
 }
+
 
 class Party(Enum):
     """Identifier for which party (side/end) is using a communicator.
@@ -84,7 +84,7 @@ class Communicator(ABC):
         self.desc = "Communicator abstract base class."
 
     @abstractmethod
-    def read(self, stdout: _io.BufferedReader, stderr: _io.BufferedReader) -> Message:
+    def read(self, proc: subprocess.Popen) -> Message:
         """Method for reading data through the communication mechanism."""
         ...
 
@@ -134,7 +134,9 @@ class PipeCommunicator(Communicator):
             msg (Message): The message read, containing contents and signal.
         """
         if self._use_pickle:
-            signal: str = proc.stderr.readline().decode()
+            signal: bytes = proc.stderr.read()
+            if signal is not None:
+                signal: str = signal.decode()
             raw_contents: bytes = proc.stdout.read()
             if raw_contents:
                 try:
@@ -145,10 +147,12 @@ class PipeCommunicator(Communicator):
                     self._use_pickle = False
                     contents: str = raw_contents.decode()
             else:
-                contents: str  = ""
+                contents: str = ""
         else:
-            signal: str = proc.stderr.read()
-            contents: str = proc.stdout.readline().decode()
+            signal: bytes = proc.stderr.read()
+            if signal is not None:
+                signal: str = signal.decode()
+            contents: str = proc.stdout.read().decode()
 
             if signal and signal not in LUTE_SIGNALS:
                 # Some tasks write on stderr
@@ -200,6 +204,7 @@ class PipeCommunicator(Communicator):
             sys.stderr.write(raw_signal)
             sys.stdout.write(raw_contents)
 
+
 class SocketCommunicator(Communicator):
     """Provides communication over Unix sockets.
 
@@ -214,16 +219,12 @@ class SocketCommunicator(Communicator):
     send data, and immediately close and clean up.
     """
 
-    MAX_QUEUE: int = 1024
+    READ_TIMEOUT: float = 0.05
     """
-    Maximum size of the Message queue.
-    """
-    READ_TIMEOUT: float = 0.5
-    """
-    Maximum time to wait to retrieve an item from the Message queue.
+    Maximum time to wait to retrieve data.
     """
 
-    def __init__(self, party: Party = Party.TASK) -> None:
+    def __init__(self, party: Party = Party.TASK, use_pickle: bool = True) -> None:
         """IPC over a Unix socket.
 
         Unlike with the PipeCommunicator, pickle is always used to send data
@@ -232,31 +233,21 @@ class SocketCommunicator(Communicator):
         Args:
             party (Party): Which object (side/process) the Communicator is
                 managing IPC for. I.e., is this the "Task" or "Executor" side.
+
+            use_pickle (bool): Whether to use pickle. Always True currently,
+                passing False does not change behaviour.
         """
-        super().__init__(party=party)
+        super().__init__(party=party, use_pickle=use_pickle)
         self.desc: str = "Communicates through a Unix socket."
 
         self._data_socket: socket.socket = self._create_socket()
-
-        # Only the Executor needs a thread...
-        if self._party == Party.EXECUTOR:
-            self._comm_thread: threading.Thread = threading.Thread(target=self._listen_socket)
-            self._comm_thread.start()
-            self._is_listening: bool = True
-            self._queue: queue.Queue = queue.Queue(maxsize=SocketCommunicator.MAX_QUEUE)
-            #self._comm_thread.join()
-        elif self._party == Party.TASK:
-            pass
-        else:
-            raise ValueError(
-                f"Unknown Party requested! {self._party} is not implemented!"
-            )
+        self._data_socket.setblocking(0)
 
     def read(self, proc: subprocess.Popen) -> Message:
-        """Read data from a queue.
+        """Read data from a socket.
 
-        Data is from a continuously monitored socket, where it is added to a
-        queue. This method reads from the queue in FIFO fashion.
+        Socket(s) are continuously monitored, and read from when new data is
+        available.
 
         Args:
             proc (subprocess.Popen): The process to read from. Provided for
@@ -265,10 +256,25 @@ class SocketCommunicator(Communicator):
         Returns:
              msg (Message): The message read, containing contents and signal.
         """
+        has_data, _, has_error = select.select(
+            [self._data_socket],
+            [],
+            [self._data_socket],
+            SocketCommunicator.READ_TIMEOUT,
+        )
+
         msg: Message
-        try:
-            msg = self._queue.get(timeout=SocketCommunicator.READ_TIMEOUT)
-        except queue.Empty:
+        if has_data:
+            connection, _ = has_data[0].accept()
+            full_data: bytes = b""
+            while True:
+                data: bytes = connection.recv(1024)
+                if data:
+                    full_data += data
+                else:
+                    break
+            msg = pickle.loads(full_data) if full_data else Message()
+        else:
             msg = Message()
 
         return msg
@@ -290,35 +296,21 @@ class SocketCommunicator(Communicator):
         Returns:
             data_socket (socket.socket): Unix socket object.
         """
-        socket_path: str = os.environ["LUTE_SOCKET"]
+        socket_path: str
+        try:
+            socket_path = os.environ["LUTE_SOCKET"]
+        except KeyError as err:
+            socket_path = "/tmp/.lock.sock"
+
         data_socket: socket.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         if self._party == Party.EXECUTOR:
             data_socket.bind(socket_path)
-            data_socket.listen()
+            data_socket.listen(1)
         elif self._party == Party.TASK:
             data_socket.connect(socket_path)
 
         return data_socket
-
-    def _listen_socket(self) -> None:
-        """Listens to a socket on the 'server' (Executor) side.
-
-        Received data is packaged and added to a queue.
-        """
-        #self._data_socket: socket.socket = self._create_socket()
-
-        while self._is_listening:
-            connection, _ = self._data_socket.accept()
-            full_data: bytes = b""
-            while True:
-                data: bytes = connection.recv(1024)
-                if data:
-                    full_data += data
-                else:
-                    break
-            msg: Message = pickle.loads(full_data)
-            self._queue.put(msg)
 
     def _write_socket(self, msg: Message) -> None:
         """Sends data over a socket from the 'client' (Task) side.
@@ -326,7 +318,6 @@ class SocketCommunicator(Communicator):
         Communicator objects on the Task-side are fleeting, so a socket is
         opened, data is sent, and then the connection and socket are cleaned up.
         """
-        self._data_socket: socket.socket = self._create_socket()
         self._data_socket.sendall(pickle.dumps(msg))
 
         self._clean_up()
@@ -343,4 +334,5 @@ class SocketCommunicator(Communicator):
                 os.unlink(socket_path)
 
     def __del__(self):
-        self._clean_up()
+        if self._party == Party.EXECUTOR:
+            self._clean_up()

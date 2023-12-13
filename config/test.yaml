@@ -1,0 +1,35 @@
+%YAML 1.3
+---
+title: "LUTE Task Configuration" # Include experiment description if desired
+experiment: "EXPL10000"
+date: "2023/10/25"
+lute-version: 0.1      # Do not be change unless need to force older version
+...
+---
+# FindOverlapXSS Configuration
+FindOverlapXSS:
+  # Detector selection - if left as "", will attempt to find a default
+  exp_config:
+    det_name: "Rayonix" # Detector to azimuthally integrate
+    ipm_var: "ipm_dg2" # ipm to use for x-ray intensity filtering
+    scan_var: "lxt"    # Scanned motor to use for overlap finding
+  # Thresholds used for data filtering
+  thresholds:
+    min_Iscat: 10      # Minimum integrated scattering intensity
+    min_ipm: 1000      # Minimum x-ray intensity at selected ipm
+
+Test:
+  float_var: 0.01
+  str_var: "test"
+  compound_var:
+    int_var: 10
+    dict_var: {"a": "b"}
+
+TestBinary:
+  executable: "/sdf/home/d/dorlhiac/test_tasks/test_threads"
+  p_arg1: 4 # Number of cores
+
+TestSocket:
+  array_size: 8000 # Size of arrays to send. 8000 floats ~ 6.4e4
+  num_arrays: 10 # Number of arrays to send.
+...

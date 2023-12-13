@@ -61,9 +61,16 @@ class TestParameters(TaskParameters):
 
     compound_var: CompoundVar
 
+
 class TestBinaryParameters(TaskParameters):
     executable: str = "/sdf/home/d/dorlhiac/test_tasks/test_threads"
     p_arg1: int = 1
+
+
+class TestSocketParameters(TaskParameters):
+    array_size: int = 10000
+    num_arrays: int = 10
+
 
 class FindOverlapXSSParameters(TaskParameters):
     """TaskParameter model for FindOverlapXSS Task.

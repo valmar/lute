@@ -320,7 +320,10 @@ class Executor(BaseExecutor):
     def __init__(
         self,
         task_name: str,
-        communicators: List[Communicator] = [PipeCommunicator(Party.EXECUTOR)],
+        communicators: List[Communicator] = [
+            PipeCommunicator(Party.EXECUTOR),
+            SocketCommunicator(Party.EXECUTOR),
+        ],
         poll_interval: float = 0.05,
     ) -> None:
         super().__init__(
@@ -333,7 +336,7 @@ class Executor(BaseExecutor):
     def add_default_hooks(self) -> None:
         """Populate the set of default event hooks."""
 
-        def no_pickle_mode(self: Self, msg: Message):
+        def no_pickle_mode(self: Executor, msg: Message):
             for idx, communicator in enumerate(self._communicators):
                 if isinstance(communicator, PipeCommunicator):
                     self._communicators[idx] = PipeCommunicator(
@@ -342,34 +345,34 @@ class Executor(BaseExecutor):
 
         self.add_hook("no_pickle_mode", no_pickle_mode)
 
-        def task_started(self: Self, msg: Message):
+        def task_started(self: Executor, msg: Message):
             if isinstance(msg.contents, TaskParameters):
                 self._config.task_parameters = msg.contents
             logger.info(f"Executor: {self._config.task_result.task_name} started")
 
         self.add_hook("task_started", task_started)
 
-        def task_failed(self: Self, msg: Message):
+        def task_failed(self: Executor, msg: Message):
             ...
 
         self.add_hook("task_failed", task_failed)
 
-        def task_stopped(self: Self, msg: Message):
+        def task_stopped(self: Executor, msg: Message):
             ...
 
         self.add_hook("task_stopped", task_stopped)
 
-        def task_done(self: Self, msg: Message):
+        def task_done(self: Executor, msg: Message):
             ...
 
         self.add_hook("task_done", task_done)
 
-        def task_cancelled(self: Self, msg: Message):
+        def task_cancelled(self: Executor, msg: Message):
             ...
 
         self.add_hook("task_cancelled", task_cancelled)
 
-        def task_result(self: Self, msg: Message):
+        def task_result(self: Executor, msg: Message):
             if isinstance(msg.contents, TaskResult):
                 self._config.task_result = msg.contents
                 logger.info(self._config.task_result.summary)
@@ -388,8 +391,11 @@ class Executor(BaseExecutor):
             if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
                 hook: Callable[[None], None] = getattr(self.Hooks, msg.signal.lower())
                 hook(self, msg)
-            if msg.contents is not None and msg.contents != "":
-                logger.info(msg.contents)
+            if msg.contents is not None:
+                if isinstance(msg.contents, str) and msg.contents != "":
+                    logger.info(msg.contents)
+                elif not isinstance(msg.contents, str):
+                    logger.info(msg.contents)
 
     def _finalize_task(self, proc: subprocess.Popen) -> None:
         """Any actions to be performed after the Task has ended.
@@ -397,4 +403,4 @@ class Executor(BaseExecutor):
         Examples include a final clearing of the pipes, retrieving results,
         reporting to third party services, etc.
         """
-        self._task_loop(proc) # Perform a final read.
+        self._task_loop(proc)  # Perform a final read.

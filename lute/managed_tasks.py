@@ -3,3 +3,4 @@ from .execution.executor import *
 
 Tester = Executor("Test")
 BinaryTester = Executor("TestBinary")
+SocketTester = Executor("TestSocket")

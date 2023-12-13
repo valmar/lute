@@ -170,10 +170,11 @@ class Task(ABC):
         method may be overriden by subclasses with specialized functionality.
         """
         communicator: Communicator
-        if sys.getsizeof(msg) > 6e4:
-            communicator = SocketCommunicator()
-        else:
+        if isinstance(msg.contents, str) or msg.contents is None:
             communicator = PipeCommunicator()
+        else:
+            communicator = SocketCommunicator()
+
         communicator.write(msg)
 
 
