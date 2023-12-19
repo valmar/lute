@@ -276,6 +276,7 @@ class SocketCommunicator(Communicator):
                 else:
                     break
             msg = pickle.loads(full_data) if full_data else Message()
+            connection.close()
         else:
             msg = Message()
 
