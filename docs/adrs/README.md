@@ -9,4 +9,5 @@
 | 2       | 2023-11-06  | Analysis `Task` submission and communication is performed via `Executor`s | **Accepted** |
 | 3       | 2023-11-06  | `Executor`s will run all `Task`s via subprocess                           | **Proposed** |
 | 4       | 2023-11-06  | Airflow `Operator`s and LUTE `Executor`s are separate entities.           | **Proposed** |
+| 5       | 2023-12-06  | Task-Executor IPC is Managed by Communicator Objects                      | **Proposed** |
 |         |             |                                                                           |              |

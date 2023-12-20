@@ -14,13 +14,16 @@ Classes:
 __all__ = ["Task", "TaskResult", "TaskStatus", "BinaryTask"]
 __author__ = "Gabriel Dorlhiac"
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, List, Dict
+from typing import Any, List
 from enum import Enum
 import os
+import sys
 
 from ..io.config import TaskParameters
+from ..execution.ipc import *
 
 
 class TaskStatus(Enum):
@@ -93,9 +96,11 @@ class Task(ABC):
                 executable sub-classes.
         """
         self.name: str = str(type(self)).split("'")[1].split(".")[-1]
-        self._status: TaskStatus = TaskStatus.PENDING
         self._result: TaskResult = TaskResult(
-            task_name=self.name, task_status=self.status, summary="PENDING", payload=""
+            task_name=self.name,
+            task_status=TaskStatus.PENDING,
+            summary="PENDING",
+            payload="",
         )
         self._task_parameters = params
 
@@ -105,9 +110,11 @@ class Task(ABC):
         This method is part of the public API and should not need to be modified
         in any subclasses.
         """
+        self._signal_start()
         self._pre_run()
         self._run()
         self._post_run()
+        self._signal_result()
 
     @abstractmethod
     def _run(self) -> None:
@@ -138,46 +145,85 @@ class Task(ABC):
         """TaskResult: Read-only Task Result information."""
         return self._result
 
-    @property
-    def status(self) -> TaskStatus:
-        """TaskStatus: The current status of the Task. Read-only"""
-        return self._status
-
     def __call__(self) -> None:
         self.run()
+
+    def _signal_start(self) -> None:
+        """Send the signal that the Task will begin shortly."""
+        start_msg: Message = Message(
+            contents=self._task_parameters, signal="TASK_STARTED"
+        )
+        self._result.task_status = TaskStatus.RUNNING
+        self._report_to_executor(start_msg)
+
+    def _signal_result(self) -> None:
+        """Send the signal that results are ready along with the results."""
+        signal: str = "TASK_RESULT"
+        results_msg: Message = Message(contents=self.result, signal=signal)
+        self._report_to_executor(results_msg)
+        time.sleep(0.1)
+
+    def _report_to_executor(self, msg: Message) -> None:
+        """Send a message to the Executor.
+
+        Details of `Communicator` choice are hidden from the caller. This
+        method may be overriden by subclasses with specialized functionality.
+        """
+        communicator: Communicator
+        if isinstance(msg.contents, str) or msg.contents is None:
+            communicator = PipeCommunicator()
+        else:
+            communicator = SocketCommunicator()
+
+        communicator.write(msg)
 
 
 class BinaryTask(Task):
     """A `Task` interface to analysis with binary executables."""
 
-    def __init__(self, *, params: TaskParameters, flag_names: Dict[str, str]) -> None:
+    def __init__(self, *, params: TaskParameters) -> None:
         """Initialize a Task.
 
         Args:
             params (TaskParameters): Parameters needed to properly configure
                 the analysis task. `Task`s of this type MUST include the name
                 of a binary to run and any arguments which should be passed to
-                it (as would be done via command line).
-
-            flag_names (Dict[str, str]): A dictionary of friendly names and
-                their corresponding command-line flags. E.g. a binary executable
-                which takes a number of cores flag may have a dictionary entry
-                that looks like:
-                    * flag_names = { "ncores" : "-n" }
-                flag_names must match the corresponding parameter names.
+                it (as would be done via command line). The binary is included
+                with the parameter `executable`. All other parameter names are
+                assumed to be the long/extended names of the flag passed on the
+                command line:
+                    * `arg_name = 3` is converted to `--arg_name 3`
+                Positional arguments can be included with `p_argN` where `N` is
+                any integer:
+                    * `p_arg1 = 3` is converted to `3`
         """
         super().__init__(params=params)
-        self._flag_names: Dict[str, str] = flag_names
-        self._cmd = self._task_parameters.pop("executable")
-        self._args_list: List[str] = []
+        self._cmd = self._task_parameters.executable
+        self._args_list: List[str] = [self._cmd]
 
     def _pre_run(self):
         """Prepare the list of flags and arguments to be executed."""
         super()._pre_run()
-        for param, value in self._task_parameters:
-            self._args_list.append(self._flag_names[str(param)])
-            self._args_list.append(str(value))
+        # We assume no compound/nested parameters for these Task types
+        # I.e. no parameters like: param = {"a": 1, "b": 2}, etc..
+        for param, value in self._task_parameters.dict().items():
+            if param == "executable":
+                continue
+            if "p_arg" in param:
+                # p_arg indicates a positional argument, so no flag
+                self._args_list.append(f"{value}")
+            else:
+                self._args_list.append(f"--{param}")
+                self._args_list.append(f"{value}")
 
     def _run(self):
         """Execute the new program by replacing the current process."""
         os.execvp(file=self._cmd, args=self._args_list)
+
+    def _signal_start(self) -> None:
+        """Override start signal method to swtich communication methods."""
+        super()._signal_start()
+        time.sleep(0.05)
+        signal: str = "NO_PICKLE_MODE"
+        msg: Message = Message(signal=signal)
+        self._report_to_executor(msg)
