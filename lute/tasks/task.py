@@ -49,6 +49,7 @@ if __debug__:
 else:
     warnings.simplefilter("ignore")
 
+
 class TaskStatus(Enum):
     """Possible Task statuses."""
 

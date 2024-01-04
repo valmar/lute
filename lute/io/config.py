@@ -59,6 +59,7 @@ class TaskParameters(BaseSettings):
     class Config:
         env_prefix = "LUTE_"
 
+
 # Test Task models
 ##################
 class TestParameters(TaskParameters):
@@ -187,6 +188,7 @@ class SMDParameters(TaskParameters):
         False, description="Whether to not use archiver data.", flag_type="--"
     )
 
+
 class FindOverlapXSSParameters(TaskParameters):
     """TaskParameter model for FindOverlapXSS Task.
 
@@ -211,6 +213,7 @@ class FindOverlapXSSParameters(TaskParameters):
     exp_config: ExpConfig
     thresholds: Thresholds
     analysis_flags: AnalysisFlags
+
 
 # Config IO
 ###########
