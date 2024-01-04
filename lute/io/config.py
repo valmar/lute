@@ -87,7 +87,7 @@ class TestSocketParameters(TaskParameters):
 
 # smalldata_tools Parameters
 ############################
-class SMDParameters(TaskParameters):
+class SubmitSMDParameters(TaskParameters):
     """Parameters for running smalldata to produce reduced HDF5 files."""
 
     executable: str = Field("mpirun", description="MPI executable.", flag_type="")
