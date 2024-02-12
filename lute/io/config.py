@@ -41,6 +41,7 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 
+
 # Parameter models
 ##################
 # Parameter models
@@ -68,6 +69,7 @@ class AnalysisHeader(BaseModel):
         ),
     )
 
+
 class TaskParameters(BaseSettings):
     """Base class for models of task parameters to be validated.
 
@@ -92,6 +94,7 @@ class TaskParameters(BaseSettings):
 
     lute_config: AnalysisHeader = AnalysisHeader()
 
+
 @dataclass
 class ThirdPartyParameters:
     """Class for representing parameters for third party configuration files.
@@ -110,11 +113,13 @@ class ThirdPartyParameters:
 
     params: Any
 
+
 class TemplateConfig(BaseModel):
     """Parameters used for templating of third party configuration files."""
 
     template_dir: str
     output_dir: str
+
 
 class BaseBinaryParameters(TaskParameters):
     """Base class for third party task parameters.
@@ -135,6 +140,7 @@ class BaseBinaryParameters(TaskParameters):
                 values[key] = ThirdPartyParameters(values[key])
 
         return values
+
 
 # Test Task models
 ##################
@@ -277,6 +283,7 @@ class SubmitSMDParameters(BaseBinaryParameters):
         if not lute_template_cfg.output_dir:
             lute_template_cfg.output_dir = values["producer"]
         return lute_template_cfg
+
     # detnames: ThirdPartyParameters = ThirdPartyParameters({})
     # epicsPV: ThirdPartyParameters = ThirdPartyParameters({})
     # ttCalib: ThirdPartyParameters = ThirdPartyParameters({})
@@ -289,6 +296,7 @@ class SubmitSMDParameters(BaseBinaryParameters):
     # getDroplet2Photons: ThirdPartyParameters = ThirdPartyParameters({})
     # getSvdParams: ThirdPartyParameters = ThirdPartyParameters({})
     # getAutocorrParams: ThirdPartyParameters = ThirdPartyParameters({})
+
 
 class FindOverlapXSSParameters(TaskParameters):
     """TaskParameter model for FindOverlapXSS Task.

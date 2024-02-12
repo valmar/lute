@@ -22,7 +22,12 @@ from enum import Enum
 import os
 import warnings
 
-from ..io.config import TaskParameters
+from ..io.config import (
+    TaskParameters,
+    ThirdPartyParameters,
+    TemplateConfig,
+    AnalysisHeader,
+)
 from ..execution.ipc import *
 
 if __debug__:
@@ -126,7 +131,7 @@ class Task(ABC):
             summary="PENDING",
             payload="",
         )
-        self._task_parameters = params
+        self._task_parameters: TaskParameters = params
 
     def run(self) -> None:
         """Calls the analysis routines and any pre/post task functions.
@@ -192,6 +197,9 @@ class Task(ABC):
 
         Details of `Communicator` choice are hidden from the caller. This
         method may be overriden by subclasses with specialized functionality.
+
+        Args:
+            msg (Message): The message object to send.
         """
         communicator: Communicator
         if isinstance(msg.contents, str) or msg.contents is None:
@@ -224,15 +232,84 @@ class BinaryTask(Task):
         super().__init__(params=params)
         self._cmd = self._task_parameters.executable
         self._args_list: List[str] = [self._cmd]
+        self._template_context: Dict[str, Any] = {}
+
+    def _add_to_jinja_context(self, param_name: str, value: Any) -> None:
+        """Store a parameter as a Jinja template variable.
+
+        Variables are stored in a dictionary which is used to fill in a
+        premade Jinja template for a third party configuration file.
+
+        Args:
+            param_name (str): Name to store the variable as. This should be
+                the name defined in the corresponding pydantic model. This name
+                MUST match the name used in the Jinja Template!
+            value (Any): The value to store. If possible, large chunks of the
+                template should be represented as a single dictionary for
+                simplicity; however, any type can be stored as needed.
+        """
+        context_update: Dict[str, Any] = {param_name: value}
+        if __debug__:
+            msg: Message = Message(contents=f"ThirdPartyParameters: {context_update}")
+            self._report_to_executor(msg)
+        self._template_context.update(context_update)
+
+    def _template_to_config_file(self) -> None:
+        """Convert a template file into a valid configuration file.
+
+        Uses Jinja to fill in a provided template file with variables supplied
+        through the LUTE config file. This facilitates parameter modification
+        for third party tasks which use a separate configuration, in addition
+        to, or instead of, command-line arguments.
+        """
+        from jinja2 import Environment, FileSystemLoader, Template
+
+        out_file: str = self._task_parameters.lute_template_cfg.output_dir
+        template_file: str = self._task_parameters.lute_template_cfg.template_dir
+
+        environment: Environment = Environment(
+            loader=FileSystemLoader("../../templates...")
+        )
+        template: Template = environment.get_template(template_file)
+
+        with open(out_file, "w", encoding="utf-8") as cfg_out:
+            cfg_out.write(template.render(self._template_context))
 
     def _pre_run(self) -> None:
+        """Parse the parameters into an appropriate argument list.
+
+        Arguments are identified by a `flag_type` attribute, defined in the
+        pydantic model, which indicates how to pass the parameter and its
+        argument on the command-line. This method parses flag:value pairs
+        into an appropriate list to be used to call the executable.
+
+        Note:
+        ThirdPartyParameter objects are returned by custom model validators.
+        Objects of this type are assumed to be used for a templated config
+        file used by the third party executable for configuration. The parsing
+        of these parameters is performed separately by a template file used as
+        an input to Jinja. This method solely identifies the necessary objects
+        and passes them all along. Refer to the template files and pydantic
+        models for more information on how these parameters are defined and
+        identified.
+        """
         super()._pre_run()
         full_schema: Dict[
             str, Union[str, Dict[str, Any]]
         ] = self._task_parameters.schema()
         for param, value in self._task_parameters.dict().items():
-            if param == "executable":
+            # Clunky test with __dict__[param] because compound model-types are
+            # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
+            if (
+                param == "executable"
+                or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
+                or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
+            ):
                 continue
+            if isinstance(self._task_parameters.__dict__[param], ThirdPartyParameters):
+                # ThirdPartyParameters objects have a single parameter `params`
+                self._add_to_jinja_context(param_name=param, value=value.params)
+
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
             if "flag_type" in param_attributes:
                 flag: str = param_attributes["flag_type"]
@@ -263,6 +340,11 @@ class BinaryTask(Task):
                 # Cannot have empty values in argument list for execvp
                 # So far this only comes for '', but do want to include, e.g. 0
                 self._args_list.append(f"{value}")
+        if (
+            hasattr(self._task_parameters, "lute_template_cfg")
+            and self._template_context
+        ):
+            self._template_to_config_file()
 
     def _run(self) -> None:
         """Execute the new program by replacing the current process."""
