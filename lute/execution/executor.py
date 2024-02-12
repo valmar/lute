@@ -9,6 +9,8 @@ to an Executor.
 
 
 Classes:
+    AnalysisConfig: Data class for holding a managed Task's configuration.
+
     BaseExecutor: Abstract base class from which all Executors are derived.
 
     Executor: Default Executor implementing all basic functionality and IPC.
@@ -51,7 +53,7 @@ else:
     warnings.simplefilter("ignore")
     os.environ["PYTHONWARNINGS"] = "ignore"
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -144,14 +146,14 @@ class BaseExecutor(ABC):
         task_env: Dict[str, str] = os.environ.copy()
         communicator_desc: List[str] = [str(comm) for comm in communicators]
 
-        self._config = AnalysisConfig(
+        self._config: AnalysisConfig = AnalysisConfig(
             task_result=result,
             task_parameters=task_parameters,
             task_env=task_env,
             poll_interval=poll_interval,
             communicator_desc=communicator_desc,
         )
-        self._communicators = communicators
+        self._communicators: List[Communicator] = communicators
 
     def add_hook(self, event: str, hook: Callable[[Self, Message], None]) -> None:
         """Add a new hook.
@@ -197,6 +199,7 @@ class BaseExecutor(ABC):
                 * "append" : The new PATH values are appended to the old ones.
                 * "overwrite" : The old PATH is overwritten by the new one.
                 "prepend" is the default option. If PATH is not present in the
+                current environment, the new PATH is used without modification.
         """
         if "PATH" in env:
             sep: str = os.pathsep
@@ -264,7 +267,7 @@ class BaseExecutor(ABC):
         else:
             cmd = f"python -OB {executable_path} {params}"
 
-        proc = self._submit_task(cmd)
+        proc: subprocess.Popen = self._submit_task(cmd)
 
         while self._task_is_running(proc):
             self._task_loop(proc)
