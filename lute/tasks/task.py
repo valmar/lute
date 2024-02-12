@@ -268,7 +268,7 @@ class BinaryTask(Task):
         template_file: str = self._task_parameters.lute_template_cfg.template_dir
 
         environment: Environment = Environment(
-            loader=FileSystemLoader("../../templates...")
+            loader=FileSystemLoader("../../config/templates")
         )
         template: Template = environment.get_template(template_file)
 
