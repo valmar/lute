@@ -36,11 +36,38 @@ from pydantic import (
     NonNegativeInt,
     Field,
     conint,
+    root_validator,
+    validator,
 )
-
+from pydantic.dataclasses import dataclass
 
 # Parameter models
 ##################
+# Parameter models
+##################
+class AnalysisHeader(BaseModel):
+    """Header information for LUTE analysis runs."""
+
+    title: str = Field(
+        "LUTE Task Configuration",
+        description="Description of the configuration or experiment.",
+    )
+    experiment: str = Field("EXPX00000", description="Experiment.")
+    run: Union[str, int] = Field(
+        os.environ.get("RUN", ""), description="Data acquisition run."
+    )
+    date: str = Field("1970/01/01", description="Start date of analysis.")
+    lute_version: Union[float, str] = Field(
+        0.1, description="Version of LUTE used for analysis."
+    )
+    task_timeout: PositiveInt = Field(
+        600,
+        description=(
+            "Time in seconds until a task times out. Should be slightly shorter"
+            " than job timeout if using a job manager (e.g. SLURM)."
+        ),
+    )
+
 class TaskParameters(BaseSettings):
     """Base class for models of task parameters to be validated.
 
@@ -58,7 +85,56 @@ class TaskParameters(BaseSettings):
 
     class Config:
         env_prefix = "LUTE_"
+        extra: str = "allow"
+        underscore_attrs_are_private: bool = True
+        copy_on_model_validation: str = "deep"
+        allow_inf_nan: bool = False
 
+    lute_config: AnalysisHeader = AnalysisHeader()
+
+@dataclass
+class ThirdPartyParameters:
+    """Class for representing parameters for third party configuration files.
+
+    These parameters can represent arbitrary data types and are used in
+    conjunction with templates for modifying third party configuration files
+    from the single LUTE YAML. Due to the storage of arbitrary data types, and
+    the use of a template file, a single instance of this class can hold from a
+    single template variable to an entire configuration file. The data parsing
+    is done by jinja using the complementary template.
+    All data is stored in the single model variable `params.`
+
+    The pydantic "dataclass" is used over the BaseModel/Settings to allow
+    positional argument instantiation of the `params` Field.
+    """
+
+    params: Any
+
+class TemplateConfig(BaseModel):
+    """Parameters used for templating of third party configuration files."""
+
+    template_dir: str
+    output_dir: str
+
+class BaseBinaryParameters(TaskParameters):
+    """Base class for third party task parameters.
+
+    Contains special validators for extra arguments and handling of parameters
+    used for filling in third party configuration files.
+    """
+
+    class Config:
+        extra: str = "allow"
+
+    # lute_template_cfg: TemplateConfig
+
+    @root_validator(pre=False)
+    def extra_fields_to_thirdparty(cls, values):
+        for key in values:
+            if key not in cls.__fields__:
+                values[key] = ThirdPartyParameters(values[key])
+
+        return values
 
 # Test Task models
 ##################
@@ -75,7 +151,7 @@ class TestParameters(TaskParameters):
     compound_var: CompoundVar
 
 
-class TestBinaryParameters(TaskParameters):
+class TestBinaryParameters(BaseBinaryParameters):
     executable: str = "/sdf/home/d/dorlhiac/test_tasks/test_threads"
     p_arg1: int = 1
 
@@ -87,7 +163,7 @@ class TestSocketParameters(TaskParameters):
 
 # smalldata_tools Parameters
 ############################
-class SubmitSMDParameters(TaskParameters):
+class SubmitSMDParameters(BaseBinaryParameters):
     """Parameters for running smalldata to produce reduced HDF5 files."""
 
     executable: str = Field("mpirun", description="MPI executable.", flag_type="")
@@ -188,6 +264,31 @@ class SubmitSMDParameters(TaskParameters):
         False, description="Whether to not use archiver data.", flag_type="--"
     )
 
+    lute_template_cfg: TemplateConfig = TemplateConfig(template_dir="", output_dir="")
+
+    @validator("producer", always=True)
+    def validate_producer_path(cls, producer: str) -> str:
+        return producer
+
+    @validator("lute_template_cfg", always=True)
+    def use_producer(
+        cls, lute_template_cfg: TemplateConfig, values: Dict[str, Any]
+    ) -> TemplateConfig:
+        if not lute_template_cfg.output_dir:
+            lute_template_cfg.output_dir = values["producer"]
+        return lute_template_cfg
+    # detnames: ThirdPartyParameters = ThirdPartyParameters({})
+    # epicsPV: ThirdPartyParameters = ThirdPartyParameters({})
+    # ttCalib: ThirdPartyParameters = ThirdPartyParameters({})
+    # aioParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getROIs: ThirdPartyParameters = ThirdPartyParameters({})
+    # getAzIntParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getAzIntPyFAIParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getPhotonsParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getDropletParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getDroplet2Photons: ThirdPartyParameters = ThirdPartyParameters({})
+    # getSvdParams: ThirdPartyParameters = ThirdPartyParameters({})
+    # getAutocorrParams: ThirdPartyParameters = ThirdPartyParameters({})
 
 class FindOverlapXSSParameters(TaskParameters):
     """TaskParameter model for FindOverlapXSS Task.
@@ -241,6 +342,17 @@ def parse_config(task_name: str = "test", config_path: str = "") -> TaskParamete
         header: Dict[str, Any] = next(docs)
         config: Dict[str, Any] = next(docs)
 
-    parsed_config: TaskParameters = globals()[task_config_name](**config[task_name])
+    lute_config: Dict[str, AnalysisHeader] = {"lute_config": AnalysisHeader(**header)}
+    try:
+        task_config: Dict[str, Any] = dict(config[task_name])
+        lute_config.update(task_config)
+    except KeyError as err:
+        warnings.warn(
+            (
+                f"{task_name} has no parameter definitions in YAML file."
+                " Attempting default parameter initialization."
+            )
+        )
+    parsed_parameters: TaskParameters = globals()[task_config_name](lute_config)
 
-    return parsed_config
+    return parsed_parameters
