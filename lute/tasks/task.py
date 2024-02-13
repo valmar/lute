@@ -102,12 +102,19 @@ class TaskResult:
         summary (str): Short message/summary associated with the result.
 
         payload (Any): Actual result. May be data in any format.
+
+        impl_schemas (str): A string listing `Task` schemas implemented by the
+            associated `Task`. Schemas define the category and expected output
+            of the `Task`. An individual task may implement/conform to multiple
+            schemas. Multiple schemas are separated by ';', e.g.
+                * impl_schemas = "schema1;schema2"
     """
 
     task_name: str
     task_status: TaskStatus
     summary: str
     payload: Any
+    impl_schemas: Optional[str] = None
 
 
 class Task(ABC):
