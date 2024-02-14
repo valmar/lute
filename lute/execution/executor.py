@@ -43,6 +43,7 @@ import resource
 from .ipc import *
 from ..tasks.task import *
 from ..io.config import TaskParameters
+from ..io.db import write_cfg_to_db
 
 if __debug__:
     warnings.simplefilter("default")
@@ -280,6 +281,11 @@ class BaseExecutor(ABC):
         self._finalize_task(proc)
         proc.stdout.close()
         proc.stderr.close()
+        self._store_configuration()
+
+    def _store_configuration(self) -> None:
+        """Store configuration and results in the LUTE database."""
+        write_cfg_to_db(self._config)
 
     def _task_is_running(self, proc: subprocess.Popen) -> bool:
         """Whether a subprocess is running.
