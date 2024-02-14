@@ -41,6 +41,8 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 
+from .db import read_latest_db_entry
+
 
 # Parameter models
 ##################
@@ -78,7 +80,6 @@ class AnalysisHeader(BaseModel):
                 f"{values['experiment']}/scratch"
             )
         return work_dir
-
 
 
 class TaskParameters(BaseSettings):
@@ -176,6 +177,24 @@ class TestBinaryParameters(BaseBinaryParameters):
 class TestSocketParameters(TaskParameters):
     array_size: int = 10000
     num_arrays: int = 10
+
+
+class TestWriteOutputParameters(TaskParameters):
+    outfile_name: str = Field(
+        "test_output.txt", description="Outfile name without full path."
+    )
+    num_vals: int = Field(100, description='Number of values to "process"')
+
+
+class TestReadOutputParameters(TaskParameters):
+    in_file: str = Field("", description="File to read in. (Full path)")
+
+    @validator("in_file", always=True)
+    def validate_work_dir(cls, in_file: str, values: Dict[str, Any]) -> str:
+        if in_file == "":
+            filename: str = read_latest_db_entry("TestWriteOutput", "outfile_name")
+            in_file: str = f"{values['lute_config'].work_dir}/{filename}"
+        return in_file
 
 
 # smalldata_tools Parameters
