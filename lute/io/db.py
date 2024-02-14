@@ -13,12 +13,12 @@ Exceptions:
     DatabaseError: Generic exception raised for LUTE database errors.
 """
 
-__all__ = ["write_cfg_to_db"]
+__all__ = ["write_cfg_to_db", "read_latest_db_entry"]
 __author__ = "Gabriel Dorlhiac"
 
 import logging
 import sqlite3
-from typing import List, Dict, Dict, Any, Tuple
+from typing import List, Dict, Dict, Any, Tuple, Optional
 
 from .config import TaskParameters
 from ..tasks.task import TaskResult, TaskStatus
@@ -222,6 +222,55 @@ def _cfg_to_exec_entry_cols(
     return entry, columns
 
 
+def _get_table_cols_sqlite(con: sqlite3.Connection, table_name: str) -> Dict[str, str]:
+    """Retrieve the columns currently present in a table.
+
+    Args:
+        con (sqlite3.Connection): Database connection.
+
+        table_name (str): The table's name.
+
+    Returns:
+        cols (Dict[str, str]): A dictionary of column names and types.
+    """
+    res: sqlite3.Cursor = con.execute(f"PRAGMA table_info({table_name})")
+    # Retrieves: list = [col_id, col_name, col_type, -, default_val, -]
+    table_info: List[Tuple[int, str, str, int, str, int]] = res.fetchall()
+
+    cols: Dict[str, str] = {col[1]: col[2] for col in table_info}
+    return cols
+
+
+def _compare_cols(
+    cols1: Dict[str, str], cols2: Dict[str, str]
+) -> Optional[Dict[str, str]]:
+    """Compare whether two sets of columns are identical.
+
+    The comparison is unidirectional - This function tests for columns present
+    in `cols2` which are not present in `cols1`, but NOT vice versa. Switch the
+    order of the arguments in order to retrieve the other comparison.
+
+    Args:
+        cols1 (Dict[str, str]): Dictionary of first set of column names and
+            types.
+
+        cols2 (Dict[str, str]): Dictionary of second set of column names and
+            types.
+
+    Returns:
+        diff (Dict[str, str] | None): Any columns present in `cols2` which
+            are not present in `cols1`. If `cols2` has no entries which are
+            not present in `cols1`, returns `None`.
+    """
+    diff: Dict[str, str] = {}
+
+    for col_name in cols2.keys():
+        if col_name not in cols1.keys():
+            diff[col_name] = cols2[col_name]
+
+    return diff if diff else None
+
+
 def _make_task_table_sqlite(
     con: sqlite3.Connection, task_name: str, columns: Dict[str, str]
 ) -> bool:
@@ -242,6 +291,18 @@ def _make_task_table_sqlite(
     Returns:
         success (bool): Whether the table was created correctly or not.
     """
+    # Check existence explicitly because may need to modify...
+    if _does_table_exist_sqlite(con, task_name):
+        # Compare current columns vs new columns - the same Task can have
+        # different number of parameters -> May need to adjust cols.
+        current_cols: Dict[str, str] = _get_table_cols_sqlite(con, task_name)
+        if diff := _compare_cols(current_cols, columns):
+            for col in diff.items():
+                sql: str = f"ALTER TABLE {task_name} ADD COLUMN {col[0]} {col[1]}"
+                with con:
+                    con.execute(sql)
+
+    # Table does not yet exist -> Create it
     # Need to escape column names using double quotes since they
     # may contain periods.
     col_str: str = ", ".join(f'"{col[0]}" {col[1]}' for col in columns)
@@ -423,3 +484,32 @@ def write_cfg_to_db(cfg: AnalysisConfig) -> None:
     """
     con: sqlite3.Connection = sqlite3.Connection("lute.db")
     _make_all_tables_and_entries(con, cfg)
+
+
+def _select_from_db(
+    con: sqlite3.Connection, table_name: str, col_name: str, condition: Dict[str, str]
+) -> Any:
+    param, val = next(iter(condition.items()))
+    subs: List[str] = [param, val]
+    sql: str = f"SELECT {col_name} FROM {table_name} WHERE {subs[0]} = {subs[1]}"
+    res: sqlite3.Cursor = con.execute(sql)
+    entries = res.fetchall()
+    return entries[-1]
+
+
+def read_latest_db_entry(task_name: str, param: str) -> Any:
+    """Read most recent value entered into the database for a Task parameter.
+
+    (Will be updated for schema compliance as well as Task name.)
+
+    Args:
+        task_name (str): The name of the Task to check the database for.
+
+        param (str): The parameter name for the Task that we want to retrieve.
+
+    Returns:
+        val (Any): The most recently entered value for `param` of `task_name`
+            that can be found in the database.
+    """
+    con: sqlite3.Connection = sqlite3.Connection("lute.db")
+    return _select_from_db(con, task_name, param, {"valid_flag": "1"})
