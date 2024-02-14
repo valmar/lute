@@ -68,6 +68,17 @@ class AnalysisHeader(BaseModel):
             " than job timeout if using a job manager (e.g. SLURM)."
         ),
     )
+    work_dir: str = Field("", description="Main working directory for LUTE.")
+
+    @validator("work_dir", always=True)
+    def validate_work_dir(cls, work_dir: str, values: Dict[str, Any]) -> str:
+        if work_dir == "":
+            work_dir = (
+                f"/sdf/data/lcls/ds/{values['experiment'][:3]}/"
+                f"{values['experiment']}/scratch"
+            )
+        return work_dir
+
 
 
 class TaskParameters(BaseSettings):
