@@ -482,7 +482,9 @@ def write_cfg_to_db(cfg: AnalysisConfig) -> None:
     some of the information can be shared across multiple Tasks. Refer to
     `docs/design/database.md` for more information on the database specification.
     """
-    con: sqlite3.Connection = sqlite3.Connection("lute.db")
+    work_dir: str = cfg.task_parameters.lute_config.work_dir
+    del cfg.task_parameters.lute_config.work_dir
+    con: sqlite3.Connection = sqlite3.Connection(f"{work_dir}/lute.db")
     _make_all_tables_and_entries(con, cfg)
 
 
