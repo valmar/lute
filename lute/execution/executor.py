@@ -39,6 +39,7 @@ from dataclasses import dataclass
 import warnings
 import types
 import resource
+import copy
 
 from .ipc import *
 from ..tasks.task import *
@@ -285,7 +286,7 @@ class BaseExecutor(ABC):
 
     def _store_configuration(self) -> None:
         """Store configuration and results in the LUTE database."""
-        write_cfg_to_db(self._config)
+        write_cfg_to_db(copy.deepcopy(self._config))
 
     def _task_is_running(self, proc: subprocess.Popen) -> bool:
         """Whether a subprocess is running.
