@@ -227,8 +227,7 @@ class Task(ABC):
         else:
             communicator = SocketCommunicator()
 
-        with communicator:
-            communicator.write(msg)
+        communicator.write(msg)
 
     def clean_up_timeout(self) -> None:
         """Perform any necessary cleanup actions before exit if timing out."""
