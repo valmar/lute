@@ -138,7 +138,11 @@ class BaseExecutor(ABC):
         )
         task_parameters: TaskParameters = TaskParameters()
         task_env: Dict[str, str] = os.environ.copy()
-        communicator_desc: List[str] = [str(comm) for comm in communicators]
+        self._communicators: List[Communicator] = communicators
+        communicator_desc: List[str] = []
+        for comm in self._communicators:
+            comm.stage_communicator()
+            communicator_desc.append(str(comm))
 
         self._analysis_desc: DescribedAnalysis = DescribedAnalysis(
             task_result=result,
@@ -147,7 +151,6 @@ class BaseExecutor(ABC):
             poll_interval=poll_interval,
             communicator_desc=communicator_desc,
         )
-        self._communicators: List[Communicator] = communicators
 
     def add_hook(self, event: str, hook: Callable[[Self, Message], None]) -> None:
         """Add a new hook.
@@ -279,6 +282,8 @@ class BaseExecutor(ABC):
         proc.stderr.close()
         self._store_configuration()
         proc.wait()
+        for comm in self._communicators:
+            comm.clear_communicator()
 
     def _store_configuration(self) -> None:
         """Store configuration and results in the LUTE database."""

@@ -269,4 +269,7 @@ def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any:
     from ._sqlite import _select_from_db
 
     con: sqlite3.Connection = sqlite3.Connection(f"{db_dir}/lute.db")
-    return _select_from_db(con, task_name, param, {"valid_flag": "1"})
+    with con:
+        entry: Any = _select_from_db(con, task_name, param, {"valid_flag": "1"})
+
+    return entry

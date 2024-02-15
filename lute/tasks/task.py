@@ -227,7 +227,12 @@ class Task(ABC):
         else:
             communicator = SocketCommunicator()
 
-        communicator.write(msg)
+        with communicator:
+            communicator.write(msg)
+
+    def clean_up_timeout(self) -> None:
+        """Perform any necessary cleanup actions before exit if timing out."""
+        ...
 
 
 class BinaryTask(Task):
@@ -403,7 +408,7 @@ def timeout_handler(signum: int, frame: types.FrameType) -> None:
     if task:
         msg: Message = Message(contents="Timed out.", signal="TASK_FAILED")
         task._report_to_executor(msg)
-        task._clean_up_timeout()
+        task.clean_up_timeout()
         sys.exit(-1)
 
 
