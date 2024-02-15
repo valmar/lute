@@ -52,6 +52,8 @@ The `Executor` table contains information on the environment provided to the `Ex
 | `communicator_desc` | Description of the Communicators used.                                                                                                                                            |
 |                     |                                                                                                                                                                                   |
 
+**NOTE**: The `env` column is currently being ignored while a method is decided on to choose appropriate environment variables to save.
+
 ### `Task` tables
 For every `Task` a table of the following format will be created. The exact number of columns will depend on the specific `Task`, as the number of parameters can vary between them, and each parameter gets its own column. Within a table, multiple experiments and runs can coexist. The experiment and run are not recorded directly. Instead the first two columns point to the id of entries in the general configuration and `Executor` tables respectively. The general configuration table entry will contain the experiment and run information.
 
@@ -82,12 +84,12 @@ For every `Task` a table of the following format will be created. The exact numb
 This API is intended to be used at the `Executor` level, with some calls intended to provide default values for Pydantic models. Utilities for reading and inspecting the database outside of normal `Task` execution are addressed in the following subheader.
 
 ### Write
-- `write_cfg_to_db(cfg: AnalysisConfig) -> None`: Writes a configuration object to the database.
+- `record_analysis_db(cfg: DescribedAnalysis) -> None`: Writes the configuration to the backend database.
 - ...
 - ...
 
 ### Read
-- `get_latest_from_db(task: str, field: str) -> str`: Retrieves the latest entry `field` for task name `task`. All values are returned as strings.
+- `read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any`: Retrieve the most recent entry from a database for a specific Task.
 - ...
 - ...
 
@@ -97,5 +99,5 @@ This API is intended to be used at the `Executor` level, with some calls intende
 - ...
 
 ### TUI and GUI
-- `dbview`: TUI for database inspection. Read only.
+- `dbview`: TUI for database inspection. Read only. (**Coming soon!**)
 - ...

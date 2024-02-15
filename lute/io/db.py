@@ -9,6 +9,9 @@ Functions:
     record_analysis_db(cfg: DescribedAnalysis) -> None: Writes the configuration
         to the backend database.
 
+    read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any: Retrieve
+        the most recent entry from a database for a specific Task.
+
 Exceptions:
     DatabaseError: Generic exception raised for LUTE database errors.
 """
