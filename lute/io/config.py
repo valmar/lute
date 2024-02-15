@@ -18,10 +18,18 @@ Exceptions:
         Pydantic)
 """
 
-__all__ = ["parse_config", "TaskParameters"]
+__all__ = [
+    "parse_config",
+    "TaskParameters",
+    "AnalysisHeader",
+    "TemplateConfig",
+    "ThirdPartyParameters",
+    "BaseBinaryParameters",
+]
 __author__ = "Gabriel Dorlhiac"
 
 import os
+import warnings
 from abc import ABC
 from typing import List, Dict, Iterator, Dict, Any, Union, Optional
 
@@ -30,7 +38,6 @@ import yaml
 from pydantic import (
     BaseModel,
     BaseSettings,
-    ValidationError,
     HttpUrl,
     PositiveInt,
     NonNegativeInt,
@@ -41,11 +48,7 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 
-from .db import read_latest_db_entry
 
-
-# Parameter models
-##################
 # Parameter models
 ##################
 class AnalysisHeader(BaseModel):
@@ -190,9 +193,13 @@ class TestReadOutputParameters(TaskParameters):
     in_file: str = Field("", description="File to read in. (Full path)")
 
     @validator("in_file", always=True)
-    def validate_work_dir(cls, in_file: str, values: Dict[str, Any]) -> str:
+    def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
+        from .db import read_latest_db_entry
+
         if in_file == "":
-            filename: str = read_latest_db_entry("TestWriteOutput", "outfile_name")
+            filename: str = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "TestWriteOutput", "outfile_name"
+            )
             in_file: str = f"{values['lute_config'].work_dir}/{filename}"
         return in_file
 
@@ -391,6 +398,6 @@ def parse_config(task_name: str = "test", config_path: str = "") -> TaskParamete
                 " Attempting default parameter initialization."
             )
         )
-    parsed_parameters: TaskParameters = globals()[task_config_name](lute_config)
+    parsed_parameters: TaskParameters = globals()[task_config_name](**lute_config)
 
     return parsed_parameters

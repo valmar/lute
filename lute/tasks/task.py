@@ -11,7 +11,7 @@ Classes:
     BinaryTask: Class to run a third-party executable binary as a `Task`.
 """
 
-__all__ = ["Task", "TaskResult", "TaskStatus", "BinaryTask"]
+__all__ = ["Task", "TaskResult", "TaskStatus", "DescribedAnalysis", "BinaryTask"]
 __author__ = "Gabriel Dorlhiac"
 
 import time
@@ -115,6 +115,15 @@ class TaskResult:
     summary: str
     payload: Any
     impl_schemas: Optional[str] = None
+
+
+@dataclass
+class DescribedAnalysis:
+    task_result: TaskResult
+    task_parameters: TaskParameters
+    task_env: Dict[str, str]
+    poll_interval: float
+    communicator_desc: List[str]
 
 
 class Task(ABC):

@@ -6,23 +6,21 @@ intended to be public. These abstract away the details of the database interface
 and work exclusively on LUTE objects.
 
 Functions:
-    write_cfg_to_db(cfg: AnalysisConfig) -> None: Writes the configuration to
-        the backend database.
+    record_analysis_db(cfg: DescribedAnalysis) -> None: Writes the configuration
+        to the backend database.
 
 Exceptions:
     DatabaseError: Generic exception raised for LUTE database errors.
 """
 
-__all__ = ["write_cfg_to_db", "read_latest_db_entry"]
+__all__ = ["record_analysis_db", "read_latest_db_entry"]
 __author__ = "Gabriel Dorlhiac"
 
 import logging
-import sqlite3
-from typing import List, Dict, Dict, Any, Tuple, Optional
+from typing import List, Dict, Dict, Any, Tuple
 
 from .config import TaskParameters
-from ..tasks.task import TaskResult, TaskStatus
-from ..execution.executor import AnalysisConfig
+from ..tasks.task import TaskResult, TaskStatus, DescribedAnalysis
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)
@@ -38,87 +36,28 @@ class DatabaseError(Exception):
     ...
 
 
-def _print_table_info(con: sqlite3.Connection, table_name: str) -> None:
-    """Prints information about columns/entries of a Task table.
-
-    This is primarily a debugging function.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        table_name (str): The table to check for.
-    """
-    res: sqlite3.Cursor = con.execute(f"PRAGMA table_info({table_name})")
-    print(res.fetchall())
-
-
-def _does_table_exist_sqlite(con: sqlite3.Connection, table_name: str) -> bool:
-    """Check whether a table exists.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        table_name (str): The table to check for.
-
-    Returns:
-        does_exist (bool): Whether the table exists.
-    """
-    res: sqlite3.Cursor = con.execute(
-        f"SELECT name FROM sqlite_master WHERE name='{table_name}'"
-    )
-    if res.fetchone() is None:
-        return False
-    else:
-        return True
-
-
-def _check_type(value: Any) -> str:
-    """Return SQL type for a value."""
-    if isinstance(value, int):
-        return "INTEGER"
-    elif isinstance(value, float):
-        return "REAL"
-    elif isinstance(value, str):
-        return "TEXT"
-    else:
-        return "BLOB"
-
-
-def _dict_to_flatdicts(
-    d: Dict[str, Any], curr_key: str = ""
+def _cfg_to_exec_entry_cols(
+    cfg: DescribedAnalysis,
 ) -> Tuple[Dict[str, Any], Dict[str, str]]:
-    """Flattens a dictionary delimiting parameters with a '.'.
-
-    Works recursively. Also returns the type of each flattened value.
+    """Converts AnalysisConfig to be entered into a exec_cfg table.
 
     Args:
-        d (Dict[str, Any]): Dictionary to flatten.
+        entries (Dict[str, Any]): Converted {name:value} dictionary.
 
-        curr_key (str): Current flattened key.
-
-    Returns:
-        flattened_params (Dict[str, Any]): Dictionary of flatkey:value pairs.
-
-        flattened_types (Dict[str, str]): Dictionary of flatkey:type(value) pairs.
-            Types are one of TEXT, INTEGER, REAL.
+        columns (Dict[str, str]): Converted {name:type} dictionary.
     """
-    param_list: List[Tuple[str, Any]] = []
-    type_list: List[Tuple[str, str]] = []
-    for key, value in d.items():
-        flat_key: str
-        if curr_key == "":
-            flat_key = key
-        else:
-            flat_key = f"{curr_key}.{key}"
-        if isinstance(value, dict):
-            x, y = _dict_to_flatdicts(value, curr_key=flat_key)
-            param_list.extend(x.items())
-            type_list.extend(y.items())
-        else:
-            param_list.append((flat_key, value))
-            type_list.append((flat_key, _check_type(value)))
+    entry: Dict[str, Any] = {
+        # "env": ";".join(f"{key}={value}" for key, value in cfg.task_env.items()),
+        "poll_interval": cfg.poll_interval,
+        "communicator_desc": ";".join(desc for desc in cfg.communicator_desc),
+    }
+    columns: Dict[str, str] = {
+        # "env": "TEXT",
+        "poll_interval": "REAL",
+        "communicator_desc": "TEXT",
+    }
 
-    return dict(param_list), dict(type_list)
+    return entry, columns
 
 
 def _params_to_entry_cols(
@@ -198,243 +137,75 @@ def _result_to_entry_cols(
     return entry, columns
 
 
-def _cfg_to_exec_entry_cols(
-    cfg: AnalysisConfig,
+def _check_type(value: Any) -> str:
+    """Return SQL type for a value."""
+    if isinstance(value, int):
+        return "INTEGER"
+    elif isinstance(value, float):
+        return "REAL"
+    elif isinstance(value, str):
+        return "TEXT"
+    else:
+        return "BLOB"
+
+
+def _dict_to_flatdicts(
+    d: Dict[str, Any], curr_key: str = ""
 ) -> Tuple[Dict[str, Any], Dict[str, str]]:
-    """Converts AnalysisConfig to be entered into a exec_cfg table.
+    """Flattens a dictionary delimiting parameters with a '.'.
+
+    Works recursively. Also returns the type of each flattened value.
 
     Args:
-        entries (Dict[str, Any]): Converted {name:value} dictionary.
+        d (Dict[str, Any]): Dictionary to flatten.
 
-        columns (Dict[str, str]): Converted {name:type} dictionary.
-    """
-    entry: Dict[str, Any] = {
-        "env": ";".join(f"{key}={value}" for key, value in cfg.task_env.items()),
-        "poll_interval": cfg.poll_interval,
-        "communicator_desc": ";".join(desc for desc in cfg.communicator_desc),
-    }
-    columns: Dict[str, str] = {
-        "env": "TEXT",
-        "poll_interval": "REAL",
-        "communicator_desc": "TEXT",
-    }
-
-    return entry, columns
-
-
-def _get_table_cols_sqlite(con: sqlite3.Connection, table_name: str) -> Dict[str, str]:
-    """Retrieve the columns currently present in a table.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        table_name (str): The table's name.
+        curr_key (str): Current flattened key.
 
     Returns:
-        cols (Dict[str, str]): A dictionary of column names and types.
+        flattened_params (Dict[str, Any]): Dictionary of flatkey:value pairs.
+
+        flattened_types (Dict[str, str]): Dictionary of flatkey:type(value) pairs.
+            Types are one of TEXT, INTEGER, REAL.
     """
-    res: sqlite3.Cursor = con.execute(f"PRAGMA table_info({table_name})")
-    # Retrieves: list = [col_id, col_name, col_type, -, default_val, -]
-    table_info: List[Tuple[int, str, str, int, str, int]] = res.fetchall()
+    param_list: List[Tuple[str, Any]] = []
+    type_list: List[Tuple[str, str]] = []
+    for key, value in d.items():
+        flat_key: str
+        if curr_key == "":
+            flat_key = key
+        else:
+            flat_key = f"{curr_key}.{key}"
+        if isinstance(value, dict):
+            x, y = _dict_to_flatdicts(value, curr_key=flat_key)
+            param_list.extend(x.items())
+            type_list.extend(y.items())
+        else:
+            param_list.append((flat_key, value))
+            type_list.append((flat_key, _check_type(value)))
 
-    cols: Dict[str, str] = {col[1]: col[2] for col in table_info}
-    return cols
+    return dict(param_list), dict(type_list)
 
 
-def _compare_cols(
-    cols1: Dict[str, str], cols2: Dict[str, str]
-) -> Optional[Dict[str, str]]:
-    """Compare whether two sets of columns are identical.
+def record_analysis_db(cfg: DescribedAnalysis) -> None:
+    """Write an DescribedAnalysis object to the database.
 
-    The comparison is unidirectional - This function tests for columns present
-    in `cols2` which are not present in `cols1`, but NOT vice versa. Switch the
-    order of the arguments in order to retrieve the other comparison.
-
-    Args:
-        cols1 (Dict[str, str]): Dictionary of first set of column names and
-            types.
-
-        cols2 (Dict[str, str]): Dictionary of second set of column names and
-            types.
-
-    Returns:
-        diff (Dict[str, str] | None): Any columns present in `cols2` which
-            are not present in `cols1`. If `cols2` has no entries which are
-            not present in `cols1`, returns `None`.
+    The DescribedAnalysis object is maintained by the Executor and contains all
+    information necessary to fully describe a single `Task` execution. The
+    contained fields are split across multiple tables within the database as
+    some of the information can be shared across multiple Tasks. Refer to
+    `docs/design/database.md` for more information on the database specification.
     """
-    diff: Dict[str, str] = {}
-
-    for col_name in cols2.keys():
-        if col_name not in cols1.keys():
-            diff[col_name] = cols2[col_name]
-
-    return diff if diff else None
-
-
-def _make_task_table_sqlite(
-    con: sqlite3.Connection, task_name: str, columns: Dict[str, str]
-) -> bool:
-    """Create  a sqlite Task table for LUTE's specification.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        task_name (str): The Task's name. This will be provided by the Task.
-            In most cases this is the Python class' name.
-
-        columns (Dict[str, str]): A dictionary of columns in the format of
-            {COLNAME:TYPE}. These match the parameters of the Task and the Result
-            fields of the Task. Additional more general columns are appended
-            within this function. Other helper functions can be used for
-            generating the dictionary from a TaskParameters object.
-
-    Returns:
-        success (bool): Whether the table was created correctly or not.
-    """
-    # Check existence explicitly because may need to modify...
-    if _does_table_exist_sqlite(con, task_name):
-        # Compare current columns vs new columns - the same Task can have
-        # different number of parameters -> May need to adjust cols.
-        current_cols: Dict[str, str] = _get_table_cols_sqlite(con, task_name)
-        if diff := _compare_cols(current_cols, columns):
-            for col in diff.items():
-                sql: str = f"ALTER TABLE {task_name} ADD COLUMN {col[0]} {col[1]}"
-                with con:
-                    con.execute(sql)
-
-    # Table does not yet exist -> Create it
-    # Need to escape column names using double quotes since they
-    # may contain periods.
-    col_str: str = ", ".join(f'"{col[0]}" {col[1]}' for col in columns)
-    db_str: str = (
-        f"{task_name}(id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
-        f"gen_cfg_id INTEGER, exec_cfg_id INTEGER, {col_str}, "
-        "valid_flag INTEGER)"
+    import sqlite3
+    from ._sqlite import (
+        _make_shared_table,
+        _make_task_table,
+        _add_row_no_duplicate,
+        _add_task_entry,
     )
-    sql: str = f"CREATE TABLE IF NOT EXISTS {db_str}"
-    with con:
-        con.execute(sql)
-    return _does_table_exist_sqlite(con, task_name)
 
+    work_dir: str = cfg.task_parameters.lute_config.work_dir
+    del cfg.task_parameters.lute_config.work_dir
 
-def _make_shared_table_sqlite(
-    con: sqlite3.Connection, table_name: str, columns: Dict[str, str]
-) -> bool:
-    """Create a general configuration table.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        table_name (str): Name of the table to create.
-
-        columns (Dict[str, str]): A dictionary of columns in the format of
-            {COLNAME:TYPE}.
-    """
-    col_str: str = ", ".join(f"{col[0]} {col[1]}" for col in columns)
-    db_str: str = f"{table_name}(id INTEGER PRIMARY KEY AUTOINCREMENT, {col_str})"
-    sql: str = f"CREATE TABLE IF NOT EXISTS {db_str}"
-    with con:
-        con.execute(sql)
-    return _does_table_exist_sqlite(con, table_name)
-
-
-def _add_task_entry_sqlite(
-    con: sqlite3.Connection,
-    task_name: str,
-    entry: Dict[str, Any],
-) -> None:
-    """Add an entry to a task table.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        task_name (str): The Task's name. This will be provided by the Task.
-            In most cases this is the Python class' name.
-
-        entry (Dict[str, Any]): A dictionary of entries in the format of
-            {COLUMN: ENTRY}. These are assumed to match the columns of the table.
-    """
-    placeholder_str: str = ", ".join("?" for x in range(len(entry)))
-    keys: List[str] = []
-    values: List[str] = []
-    for key, value in entry.items():
-        keys.append(f'"{key}"')
-        values.append(value)
-    with con:
-        ins_str: str = "".join(f':"{x}", ' for x in entry.keys())[:-2]
-        res = con.execute(
-            f"INSERT INTO {task_name} ({','.join(keys)}) VALUES ({placeholder_str})",
-            values,
-        )
-
-
-def _add_row_no_duplicate(
-    con: sqlite3.Connection, table_name: str, entry: Dict[str, Any]
-) -> int:
-    """Add a new row to a table with no duplicates.
-
-    This function will check first to see if the entry exists in the table. If
-    there is already a row with the provided information, its ID is returned.
-    Otherwise a new row is added and the ID of the newly inserted row is
-    returned.
-
-    The tables for general configuration and Executor configuration assume that
-    there are no duplicates as information is intended to be shared and linked
-    to by multiple Tasks.
-
-    This function ASSUMES the table EXISTS. Perform creation and necessary
-    existence checks before using it.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        table_name (str): The table to add a new row with `entry` values to.
-
-        entry (Dict[str, Any]): A dictionary of entries in the format of
-            {COLUMN: ENTRY}. These are assumed to match the columns of the table.
-
-    Returns:
-        row_id (int): The row id of the newly added entry or the last entry
-            which matches the provided values.
-    """
-    match_strs: List[str] = [f"{key} LIKE '{val}'" for key, val in entry.items()]
-    total_match: str = " AND ".join(s for s in match_strs)
-
-    res: sqlite3.Cursor
-    with con:
-        res = con.execute(f"SELECT id FROM {table_name} WHERE {total_match}")
-        if ids := res.fetchall():
-            logging.debug(
-                f"_{table_name}_table_entry: Rows matching {total_match}: {ids}"
-            )
-            return ids[-1][0]
-        ins_str: str = "".join(f":{x}, " for x in entry.keys())[:-2]
-        res = con.execute(
-            f"INSERT INTO {table_name} ({','.join(entry.keys())}) VALUES ({ins_str})",
-            entry,
-        )
-        res = con.execute(f"SELECT id FROM {table_name} WHERE {total_match}")
-        new_id: int = res.fetchone()[-1]
-        logging.debug(
-            f"_{table_name}_table_entry: No matching rows - adding new row: {new_id}"
-        )
-    return new_id
-
-
-def _make_all_tables_and_entries(con: sqlite3.Connection, cfg: AnalysisConfig) -> None:
-    """Prepares all the tables required for a given Task and adds entries.
-
-    A complete description of a Task run requires the Task table itself as well
-    as the `Executor` table, and General Config table. The Task table has
-    columns to link the proper entries of the other two tables.
-
-    Args:
-        con (sqlite3.Connection): Database connection.
-
-        cfg (AnalysisConfig): Complete AnalysisConfig object received from an
-            Executor.
-    """
     exec_entry, exec_columns = _cfg_to_exec_entry_cols(cfg)
     task_name: str = cfg.task_result.task_name
     # All `Task`s have an AnalysisHeader, but this info can be shared so is
@@ -448,63 +219,44 @@ def _make_all_tables_and_entries(con: sqlite3.Connection, cfg: AnalysisConfig) -
     x, y = _result_to_entry_cols(cfg.task_result)
     task_entry.update(x)
     task_columns.update(y)
-    # --- Table Creation ---#
-    if not _make_shared_table_sqlite(con, "gen_cfg", gen_columns):
-        raise DatabaseError("Could not make general configuration table!")
-    if not _make_shared_table_sqlite(con, "exec_cfg", exec_columns):
-        raise DatabaseError("Could not make Executor configuration table!")
-    if not _make_task_table_sqlite(con, task_name, task_columns):
-        raise DatabaseError(f"Could not make Task table for: {task_name}!")
 
-    # --- Row Addition ---#
-    gen_id: int = _add_row_no_duplicate(con, "gen_cfg", gen_entry)
-    exec_id: int = _add_row_no_duplicate(con, "exec_cfg", exec_entry)
-
-    full_task_entry: Dict[str, Any] = {
-        "gen_cfg_id": gen_id,
-        "exec_cfg_id": exec_id,
-    }
-    full_task_entry.update(task_entry)
-    # Prepare flag to indicate whether the task entry is valid or not
-    # By default we say it is assuming proper completion
-    valid_flag: int = 1 if cfg.task_result.task_status == TaskStatus.COMPLETED else 0
-    full_task_entry.update({"valid_flag": valid_flag})
-
-    _add_task_entry_sqlite(con, task_name, full_task_entry)
-
-
-def write_cfg_to_db(cfg: AnalysisConfig) -> None:
-    """Write an AnalysisConfig object to the database.
-
-    The AnalysisConfig object is maintained by the Executor and contains all
-    information necessary to fully describe a single `Task` execution. The
-    contained fields are split across multiple tables within the database as
-    some of the information can be shared across multiple Tasks. Refer to
-    `docs/design/database.md` for more information on the database specification.
-    """
-    work_dir: str = cfg.task_parameters.lute_config.work_dir
-    del cfg.task_parameters.lute_config.work_dir
     con: sqlite3.Connection = sqlite3.Connection(f"{work_dir}/lute.db")
-    _make_all_tables_and_entries(con, cfg)
+    with con:
+        # --- Table Creation ---#
+        if not _make_shared_table(con, "gen_cfg", gen_columns):
+            raise DatabaseError("Could not make general configuration table!")
+        if not _make_shared_table(con, "exec_cfg", exec_columns):
+            raise DatabaseError("Could not make Executor configuration table!")
+        if not _make_task_table(con, task_name, task_columns):
+            raise DatabaseError(f"Could not make Task table for: {task_name}!")
+
+        # --- Row Addition ---#
+        gen_id: int = _add_row_no_duplicate(con, "gen_cfg", gen_entry)
+        exec_id: int = _add_row_no_duplicate(con, "exec_cfg", exec_entry)
+
+        full_task_entry: Dict[str, Any] = {
+            "gen_cfg_id": gen_id,
+            "exec_cfg_id": exec_id,
+        }
+        full_task_entry.update(task_entry)
+        # Prepare flag to indicate whether the task entry is valid or not
+        # By default we say it is assuming proper completion
+        valid_flag: int = (
+            1 if cfg.task_result.task_status == TaskStatus.COMPLETED else 0
+        )
+        full_task_entry.update({"valid_flag": valid_flag})
+
+        _add_task_entry(con, task_name, full_task_entry)
 
 
-def _select_from_db(
-    con: sqlite3.Connection, table_name: str, col_name: str, condition: Dict[str, str]
-) -> Any:
-    param, val = next(iter(condition.items()))
-    subs: List[str] = [param, val]
-    sql: str = f"SELECT {col_name} FROM {table_name} WHERE {subs[0]} = {subs[1]}"
-    res: sqlite3.Cursor = con.execute(sql)
-    entries = res.fetchall()
-    return entries[-1]
-
-
-def read_latest_db_entry(task_name: str, param: str) -> Any:
+def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any:
     """Read most recent value entered into the database for a Task parameter.
 
     (Will be updated for schema compliance as well as Task name.)
 
     Args:
+        db_dir (str): Database location.
+
         task_name (str): The name of the Task to check the database for.
 
         param (str): The parameter name for the Task that we want to retrieve.
@@ -513,5 +265,8 @@ def read_latest_db_entry(task_name: str, param: str) -> Any:
         val (Any): The most recently entered value for `param` of `task_name`
             that can be found in the database.
     """
-    con: sqlite3.Connection = sqlite3.Connection("lute.db")
+    import sqlite3
+    from ._sqlite import _select_from_db
+
+    con: sqlite3.Connection = sqlite3.Connection(f"{db_dir}/lute.db")
     return _select_from_db(con, task_name, param, {"valid_flag": "1"})

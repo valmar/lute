@@ -7,7 +7,7 @@ Classes:
     TestSocket(Task): Test Task which sends larger data to test socket IPC.
 """
 
-__all__ = ["Test", "TestSocket"]
+__all__ = ["Test", "TestSocket", "TestWriteOutput", "TestReadOutput"]
 __author__ = "Gabriel Dorlhiac"
 
 import time

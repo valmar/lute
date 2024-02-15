@@ -32,8 +32,8 @@ import subprocess
 import time
 import os
 import signal
-from typing import Dict, Callable, List, TypeAlias, Union, Any, Tuple, Optional
-from typing_extensions import Self
+from typing import Dict, Callable, List, Union, Any, Tuple, Optional
+from typing_extensions import Self, TypeAlias
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import warnings
@@ -44,7 +44,7 @@ import copy
 from .ipc import *
 from ..tasks.task import *
 from ..io.config import TaskParameters
-from ..io.db import write_cfg_to_db
+from ..io.db import record_analysis_db
 
 if __debug__:
     warnings.simplefilter("default")
@@ -57,15 +57,6 @@ else:
     os.environ["PYTHONWARNINGS"] = "ignore"
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-@dataclass
-class AnalysisConfig:
-    task_result: TaskResult
-    task_parameters: TaskParameters
-    task_env: Dict[str, str]
-    poll_interval: float
-    communicator_desc: List[str]
 
 
 class BaseExecutor(ABC):
@@ -149,7 +140,7 @@ class BaseExecutor(ABC):
         task_env: Dict[str, str] = os.environ.copy()
         communicator_desc: List[str] = [str(comm) for comm in communicators]
 
-        self._config: AnalysisConfig = AnalysisConfig(
+        self._analysis_desc: DescribedAnalysis = DescribedAnalysis(
             task_result=result,
             task_parameters=task_parameters,
             task_env=task_env,
@@ -207,9 +198,13 @@ class BaseExecutor(ABC):
         if "PATH" in env:
             sep: str = os.pathsep
             if update_path == "prepend":
-                env["PATH"] = f"{env['PATH']}{sep}{self._config.task_env['PATH']}"
+                env[
+                    "PATH"
+                ] = f"{env['PATH']}{sep}{self._analysis_desc.task_env['PATH']}"
             elif update_path == "append":
-                env["PATH"] = f"{self._config.task_env['PATH']}{sep}{env['PATH']}"
+                env[
+                    "PATH"
+                ] = f"{self._analysis_desc.task_env['PATH']}{sep}{env['PATH']}"
             elif update_path == "overwrite":
                 pass
             else:
@@ -219,7 +214,7 @@ class BaseExecutor(ABC):
                         " Options are: prepend, append, overwrite."
                     )
                 )
-        self._config.task_env.update(env)
+        self._analysis_desc.task_env.update(env)
 
     def _pre_task(self) -> None:
         """Any actions to be performed before task submission.
@@ -234,7 +229,7 @@ class BaseExecutor(ABC):
             cmd.split(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=self._config.task_env,
+            env=self._analysis_desc.task_env,
         )
         os.set_blocking(proc.stdout.fileno(), False)
         os.set_blocking(proc.stderr.fileno(), False)
@@ -261,8 +256,8 @@ class BaseExecutor(ABC):
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         executable_path: str = "subprocess_task.py"
-        config_path: str = self._config.task_env["LUTE_CONFIGPATH"]
-        params: str = f"-c {config_path} -t {self._config.task_result.task_name}"
+        config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
+        params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
         cmd: str = ""
         if __debug__:
@@ -274,7 +269,7 @@ class BaseExecutor(ABC):
 
         while self._task_is_running(proc):
             self._task_loop(proc)
-            time.sleep(self._config.poll_interval)
+            time.sleep(self._analysis_desc.poll_interval)
 
         os.set_blocking(proc.stdout.fileno(), True)
         os.set_blocking(proc.stderr.fileno(), True)
@@ -283,10 +278,11 @@ class BaseExecutor(ABC):
         proc.stdout.close()
         proc.stderr.close()
         self._store_configuration()
+        proc.wait()
 
     def _store_configuration(self) -> None:
         """Store configuration and results in the LUTE database."""
-        write_cfg_to_db(copy.deepcopy(self._config))
+        record_analysis_db(copy.deepcopy(self._analysis_desc))
 
     def _task_is_running(self, proc: subprocess.Popen) -> bool:
         """Whether a subprocess is running.
@@ -300,7 +296,7 @@ class BaseExecutor(ABC):
         """
         # Add additional conditions - don't want to exit main loop
         # if only stopped
-        task_status: TaskStatus = self._config.task_result.task_status
+        task_status: TaskStatus = self._analysis_desc.task_result.task_status
         is_running: bool = task_status != TaskStatus.COMPLETED
         is_running &= task_status != TaskStatus.CANCELLED
         is_running &= task_status != TaskStatus.TIMEDOUT
@@ -309,12 +305,12 @@ class BaseExecutor(ABC):
     def _stop(self, proc: subprocess.Popen) -> None:
         """Stop the Task subprocess."""
         os.kill(proc.pid, signal.SIGTSTP)
-        self._config.task_result.task_status = TaskStatus.STOPPED
+        self._analysis_desc.task_result.task_status = TaskStatus.STOPPED
 
     def _continue(self, proc: subprocess.Popen) -> None:
         """Resume a stopped Task subprocess."""
         os.kill(proc.pid, signal.SIGCONT)
-        self._config.task_result.task_status = TaskStatus.RUNNING
+        self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
 
 
 class Executor(BaseExecutor):
@@ -365,8 +361,10 @@ class Executor(BaseExecutor):
 
         def task_started(self: Executor, msg: Message):
             if isinstance(msg.contents, TaskParameters):
-                self._config.task_parameters = msg.contents
-            logger.info(f"Executor: {self._config.task_result.task_name} started")
+                self._analysis_desc.task_parameters = msg.contents
+            logger.info(
+                f"Executor: {self._analysis_desc.task_result.task_name} started"
+            )
 
         self.add_hook("task_started", task_started)
 
@@ -392,9 +390,9 @@ class Executor(BaseExecutor):
 
         def task_result(self: Executor, msg: Message):
             if isinstance(msg.contents, TaskResult):
-                self._config.task_result = msg.contents
-                logger.info(self._config.task_result.summary)
-                logger.info(self._config.task_result.task_status)
+                self._analysis_desc.task_result = msg.contents
+                logger.info(self._analysis_desc.task_result.summary)
+                logger.info(self._analysis_desc.task_result.task_status)
 
         self.add_hook("task_result", task_result)
 
@@ -448,12 +446,12 @@ def sigchld_handler(signum: _SIGNUM, frame: types.FrameType) -> None:
     if os.WIFCONTINUED(ret[1]):
         executor: Optional[Executor] = get_executor(__name__)
         if executor:
-            executor._config.task_result.task_status = TaskStatus.RUNNING
+            executor._analysis_desc.task_result.task_status = TaskStatus.RUNNING
             logger.info("Task resumed.")
     elif os.WIFSTOPPED(ret[1]):
         executor: Optional[Executor] = get_executor(__name__)
         if executor:
-            executor._config.task_result.task_status = TaskStatus.STOPPED
+            executor._analysis_desc.task_result.task_status = TaskStatus.STOPPED
             logger.info("Task stopped.")
 
 
