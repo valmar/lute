@@ -43,7 +43,8 @@ import copy
 
 from .ipc import *
 from ..tasks.task import *
-from ..io.config import TaskParameters
+from ..tasks.dataclasses import *
+from ..io.models.base import TaskParameters
 from ..io.db import record_analysis_db
 
 if __debug__:

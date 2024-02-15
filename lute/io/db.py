@@ -19,8 +19,8 @@ __author__ = "Gabriel Dorlhiac"
 import logging
 from typing import List, Dict, Dict, Any, Tuple
 
-from .config import TaskParameters
-from ..tasks.task import TaskResult, TaskStatus, DescribedAnalysis
+from .models.base import TaskParameters
+from ..tasks.dataclasses import TaskResult, TaskStatus, DescribedAnalysis
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)

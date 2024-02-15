@@ -5,6 +5,11 @@ Classes:
         result.
 
     TestSocket(Task): Test Task which sends larger data to test socket IPC.
+
+    TestWriteOutput(Task): Test Task which writes an output file.
+
+    TestReadOutput(Task): Test Task which reads in a file. Can be used to test
+        database access.
 """
 
 __all__ = ["Test", "TestSocket", "TestWriteOutput", "TestReadOutput"]
@@ -15,8 +20,8 @@ import time
 import numpy as np
 
 from .task import *
-from ..io.config import *
-from ..execution.ipc import PipeCommunicator, Message
+from ..io.models.base import *
+from ..execution.ipc import Message
 
 
 class Test(Task):
