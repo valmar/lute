@@ -38,6 +38,28 @@ def _does_table_exist(con: sqlite3.Connection, table_name: str) -> bool:
         return True
 
 
+def _get_tables(con: sqlite3.Connection) -> List[str]:
+    """Retrieve a list of all tables in a database.
+
+    Args:
+        con (sqlite3.Connection): Database connection.
+
+    Returns:
+        tables (List[str]): A list of database tables.
+    """
+    # sql: str = "SELECT name FROM sqlite_schema"
+    sql: str = (
+        "SELECT name FROM sqlite_schema "
+        "WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%'"
+    )
+    with con:
+        res: sqlite3.Cursor = con.execute(sql)
+
+    tables: List[str] = [table[0] for table in res.fetchall()]
+    return tables
+
+
 def _get_table_cols(con: sqlite3.Connection, table_name: str) -> Dict[str, str]:
     """Retrieve the columns currently present in a table.
 
