@@ -79,6 +79,27 @@ def _get_table_cols(con: sqlite3.Connection, table_name: str) -> Dict[str, str]:
     return cols
 
 
+def _get_all_rows_for_table(
+    con: sqlite3.Connection, table_name: str
+) -> List[Tuple[Any, ...]]:
+    """Return all rows for a requested table.
+
+    Args:
+        con (sqlite3.Connection): Database connection.
+
+        table_name (str): The table's name.
+
+    Returns:
+        rows (List[Tuple[Any, ...]]): ALL rows for a table.
+    """
+    sql: str = f'SELECT * FROM "{table_name}"'
+    with con:
+        res: sqlite3.Cursor = con.execute(sql)
+
+    rows: List[Tuple[Any, ...]] = res.fetchall()
+    return rows
+
+
 def _compare_cols(
     cols1: Dict[str, str], cols2: Dict[str, str]
 ) -> Optional[Dict[str, str]]:
