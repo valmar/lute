@@ -99,5 +99,5 @@ This API is intended to be used at the `Executor` level, with some calls intende
 - ...
 
 ### TUI and GUI
-- `dbview`: TUI for database inspection. Read only. (**Coming soon!**)
+- `dbview`: TUI for database inspection. Read only.
 - ...
