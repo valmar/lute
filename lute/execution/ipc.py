@@ -332,6 +332,8 @@ class SocketCommunicator(Communicator):
         data_socket: socket.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         if self._party == Party.EXECUTOR:
+            if os.path.exists(socket_path):
+                os.unlink(socket_path)
             data_socket.bind(socket_path)
             data_socket.listen(1)
         elif self._party == Party.TASK:
