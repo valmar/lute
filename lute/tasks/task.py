@@ -3,27 +3,28 @@
 Classes:
     Task: Abstract base class from which all analysis tasks are derived.
 
-    TaskResult: Output of a specific analysis task.
-
-    TaskStatus: Enumeration of possible Task statuses (running, pending, failed,
-        etc.).
-
     BinaryTask: Class to run a third-party executable binary as a `Task`.
 """
 
-__all__ = ["Task", "TaskResult", "TaskStatus", "BinaryTask"]
+__all__ = ["Task", "TaskResult", "TaskStatus", "DescribedAnalysis", "BinaryTask"]
 __author__ = "Gabriel Dorlhiac"
 
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, List, Dict, Union, Type, TextIO
-from enum import Enum
+from typing import Any, List, Dict, Union, Type, TextIO, Optional
 import os
 import warnings
+import signal
+import types
 
-from ..io.config import TaskParameters
+from ..io.models.base import (
+    TaskParameters,
+    ThirdPartyParameters,
+    TemplateConfig,
+    AnalysisHeader,
+)
 from ..execution.ipc import *
+from .dataclasses import *
 
 if __debug__:
     warnings.simplefilter("default")
@@ -50,59 +51,6 @@ else:
     warnings.simplefilter("ignore")
 
 
-class TaskStatus(Enum):
-    """Possible Task statuses."""
-
-    PENDING = 0
-    """
-    Task has yet to run. Is Queued, or waiting for prior tasks.
-    """
-    RUNNING = 1
-    """
-    Task is in the process of execution.
-    """
-    COMPLETED = 2
-    """
-    Task has completed without fatal errors.
-    """
-    FAILED = 3
-    """
-    Task encountered a fatal error.
-    """
-    STOPPED = 4
-    """
-    Task was, potentially temporarily, stopped/suspended.
-    """
-    CANCELLED = 5
-    """
-    Task was cancelled prior to completion or failure.
-    """
-    TIMEDOUT = 6
-    """
-    Task did not reach completion due to timeout.
-    """
-
-
-@dataclass
-class TaskResult:
-    """Class for storing the result of a Task's execution with metadata.
-
-    Attributes:
-        task_name (str): Name of the associated task which produced it.
-
-        task_status (TaskStatus): Status of associated task.
-
-        summary (str): Short message/summary associated with the result.
-
-        payload (Any): Actual result. May be data in any format.
-    """
-
-    task_name: str
-    task_status: TaskStatus
-    summary: str
-    payload: Any
-
-
 class Task(ABC):
     """Abstract base class for analysis tasks.
 
@@ -126,7 +74,9 @@ class Task(ABC):
             summary="PENDING",
             payload="",
         )
-        self._task_parameters = params
+        self._task_parameters: TaskParameters = params
+        timeout: int = self._task_parameters.lute_config.task_timeout
+        signal.setitimer(signal.ITIMER_REAL, timeout)
 
     def run(self) -> None:
         """Calls the analysis routines and any pre/post task functions.
@@ -192,6 +142,9 @@ class Task(ABC):
 
         Details of `Communicator` choice are hidden from the caller. This
         method may be overriden by subclasses with specialized functionality.
+
+        Args:
+            msg (Message): The message object to send.
         """
         communicator: Communicator
         if isinstance(msg.contents, str) or msg.contents is None:
@@ -200,6 +153,10 @@ class Task(ABC):
             communicator = SocketCommunicator()
 
         communicator.write(msg)
+
+    def clean_up_timeout(self) -> None:
+        """Perform any necessary cleanup actions before exit if timing out."""
+        ...
 
 
 class BinaryTask(Task):
@@ -224,15 +181,84 @@ class BinaryTask(Task):
         super().__init__(params=params)
         self._cmd = self._task_parameters.executable
         self._args_list: List[str] = [self._cmd]
+        self._template_context: Dict[str, Any] = {}
+
+    def _add_to_jinja_context(self, param_name: str, value: Any) -> None:
+        """Store a parameter as a Jinja template variable.
+
+        Variables are stored in a dictionary which is used to fill in a
+        premade Jinja template for a third party configuration file.
+
+        Args:
+            param_name (str): Name to store the variable as. This should be
+                the name defined in the corresponding pydantic model. This name
+                MUST match the name used in the Jinja Template!
+            value (Any): The value to store. If possible, large chunks of the
+                template should be represented as a single dictionary for
+                simplicity; however, any type can be stored as needed.
+        """
+        context_update: Dict[str, Any] = {param_name: value}
+        if __debug__:
+            msg: Message = Message(contents=f"ThirdPartyParameters: {context_update}")
+            self._report_to_executor(msg)
+        self._template_context.update(context_update)
+
+    def _template_to_config_file(self) -> None:
+        """Convert a template file into a valid configuration file.
+
+        Uses Jinja to fill in a provided template file with variables supplied
+        through the LUTE config file. This facilitates parameter modification
+        for third party tasks which use a separate configuration, in addition
+        to, or instead of, command-line arguments.
+        """
+        from jinja2 import Environment, FileSystemLoader, Template
+
+        out_file: str = self._task_parameters.lute_template_cfg.output_dir
+        template_file: str = self._task_parameters.lute_template_cfg.template_dir
+
+        environment: Environment = Environment(
+            loader=FileSystemLoader("../../config/templates")
+        )
+        template: Template = environment.get_template(template_file)
+
+        with open(out_file, "w", encoding="utf-8") as cfg_out:
+            cfg_out.write(template.render(self._template_context))
 
     def _pre_run(self) -> None:
+        """Parse the parameters into an appropriate argument list.
+
+        Arguments are identified by a `flag_type` attribute, defined in the
+        pydantic model, which indicates how to pass the parameter and its
+        argument on the command-line. This method parses flag:value pairs
+        into an appropriate list to be used to call the executable.
+
+        Note:
+        ThirdPartyParameter objects are returned by custom model validators.
+        Objects of this type are assumed to be used for a templated config
+        file used by the third party executable for configuration. The parsing
+        of these parameters is performed separately by a template file used as
+        an input to Jinja. This method solely identifies the necessary objects
+        and passes them all along. Refer to the template files and pydantic
+        models for more information on how these parameters are defined and
+        identified.
+        """
         super()._pre_run()
         full_schema: Dict[
             str, Union[str, Dict[str, Any]]
         ] = self._task_parameters.schema()
         for param, value in self._task_parameters.dict().items():
-            if param == "executable":
+            # Clunky test with __dict__[param] because compound model-types are
+            # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
+            if (
+                param == "executable"
+                or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
+                or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
+            ):
                 continue
+            if isinstance(self._task_parameters.__dict__[param], ThirdPartyParameters):
+                # ThirdPartyParameters objects have a single parameter `params`
+                self._add_to_jinja_context(param_name=param, value=value.params)
+
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
             if "flag_type" in param_attributes:
                 flag: str = param_attributes["flag_type"]
@@ -263,6 +289,11 @@ class BinaryTask(Task):
                 # Cannot have empty values in argument list for execvp
                 # So far this only comes for '', but do want to include, e.g. 0
                 self._args_list.append(f"{value}")
+        if (
+            hasattr(self._task_parameters, "lute_template_cfg")
+            and self._template_context
+        ):
+            self._template_to_config_file()
 
     def _run(self) -> None:
         """Execute the new program by replacing the current process."""
@@ -284,3 +315,25 @@ class BinaryTask(Task):
         signal: str = "NO_PICKLE_MODE"
         msg: Message = Message(signal=signal)
         self._report_to_executor(msg)
+
+
+def get_task(where: str) -> Optional[Task]:
+    """Return the current Task."""
+    objects: Dict[str, Any] = globals()
+    for _, obj in objects.items():
+        if isinstance(obj, Task):
+            return obj
+    return None
+
+
+def timeout_handler(signum: int, frame: types.FrameType) -> None:
+    """Log and exit gracefully on Task timeout."""
+    task: Optional[Task] = get_task(__name__)
+    if task:
+        msg: Message = Message(contents="Timed out.", signal="TASK_FAILED")
+        task._report_to_executor(msg)
+        task.clean_up_timeout()
+        sys.exit(-1)
+
+
+signal.signal(signal.SIGALRM, timeout_handler)

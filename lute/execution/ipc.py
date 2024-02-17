@@ -30,6 +30,7 @@ import pickle
 import subprocess
 import select
 from typing import Optional, Any, Set
+from typing_extensions import Self
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -99,6 +100,20 @@ class Communicator(ABC):
 
     def __repr__(self):
         return self.__str__()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self) -> None:
+        ...
+
+    def stage_communicator(self):
+        """Alternative method for staging outside of context manager."""
+        self.__enter__()
+
+    def clear_communicator(self):
+        """Alternative exit method outside of context manager."""
+        self.__exit__()
 
 
 class PipeCommunicator(Communicator):
@@ -317,6 +332,8 @@ class SocketCommunicator(Communicator):
         data_socket: socket.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         if self._party == Party.EXECUTOR:
+            if os.path.exists(socket_path):
+                os.unlink(socket_path)
             data_socket.bind(socket_path)
             data_socket.listen(1)
         elif self._party == Party.TASK:
@@ -345,6 +362,5 @@ class SocketCommunicator(Communicator):
             if self._party == Party.EXECUTOR:
                 os.unlink(socket_path)
 
-    def __del__(self):
-        if self._party == Party.EXECUTOR:
-            self._clean_up()
+    def __exit__(self):
+        self._clean_up()

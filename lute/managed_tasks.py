@@ -6,6 +6,8 @@ from .execution.executor import *
 Tester = Executor("Test")
 BinaryTester = Executor("TestBinary")
 SocketTester = Executor("TestSocket")
+WriteTester = Executor("TestWriteOutput")
+ReadTester = Executor("TestReadOutput")
 
 # SmallData-related
 ###################
