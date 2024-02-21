@@ -42,7 +42,11 @@ class JIDSlurmOperator(BaseOperator):
     jid_api_location: str = "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws"
     """S3DF JID API location."""
 
-    jid_api_endpoints: Dict[str, str] = {}
+    jid_api_endpoints: Dict[str, str] = {
+        "start_job": "{experiment}/start_job",
+        "job_statuses": "job_statuses",
+        "job_log_file": "{experiment}/job_log_file",
+    }
 
     @apply_defaults
     def __init__(
@@ -55,40 +59,57 @@ class JIDSlurmOperator(BaseOperator):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.task_id: str = ""
-        self.lute_executable: str = f"{lute_location}/run_task.py"
+        self.lute_location: str = (
+            f"{lute_location}/run_task.py"  # switch to os.path.split(__file__)...
+        )
         self.user: str = ""
         self.poke_interval: float = poke_interval
 
     def create_control_doc(
         self, context: Dict[str, Any]
     ) -> Dict[str, Union[str, Dict[str, str]]]:
-        """
+        """Prepare the control document for job submission via the JID.
+
+        Translates and Airflow dictionary to the representation needed by the
+        JID.
 
         Args:
-            context: Airflow dictionary object.
+            context (Dict[str, Any]): Airflow dictionary object.
                 https://airflow.apache.org/docs/apache-airflow/stable/templates-ref.html
                 contains a list of available variables and their description.
+
+        Returns:
+            control_doc (Dict[str, Union[str, Dict[str, str]]]): JID job control
+                dictionary.
         """
 
-        dagrun_config: Dict[str, Union[str, Dict[str, str]]] = context.get(
-            "dag_run"
-        ).conf
+        dagrun_config: Dict[
+            str, Union[str, Dict[str, Union[str, int, List[str]]]]
+        ] = context.get("dag_run").conf
 
-        command_line_params: Dict[str, str] = dagrun_config.get("parameters", {})
+        lute_params: Dict[str, str] = dagrun_config.get("lute_params", {})
 
-        config_path: str = command_line_params["config"]
+        config_path: str = lute_params["config_file"]
         # Note that task_id is from the parent class.
         # When defining the Operator instances the id is assumed to match a
         # managed task!
-        parameter_string: str = f"--taskname {self.task_id} --config {config_path}"
+        lute_param_str: str
+        if lute_params["debug"]:
+            lute_param_str = f"--taskname {self.task_id} --config {config_path} --debug"
+        else:
+            lute_param_str = f"--taskname {self.task_id} --config {config_path}"
+
+        # slurm_params holds a List[str]
+        slurm_param_str: str = " ".join(dagrun_config.get("slurm_params"))
+        parameter_str: str = f"{lute_param_str} {slurm_param_str}"
 
         jid_job_definition: Dict[str, str] = {
             "_id": str(uuid.uuid4()),
             "name": self.task_id,
-            "executable": self.lute_executable,
+            "executable": f"{self.lute_location}/launch_scripts/submit_slurm.sh",
             "trigger": "MANUAL",
-            "location": "S3DF",  # self.get_location(context)
-            "parameters": parameter_string,
+            "location": dagrun_config.get("ARP_LOCATION", "S3DF"),
+            "parameters": parameter_str,
             "run_as_user": self.user,
         }
 
@@ -116,6 +137,10 @@ class JIDSlurmOperator(BaseOperator):
                 HTTP request.
             check_for_error (List[str]): A list of strings/patterns to search
                 for in response. Exception is raised if there are any matches.
+
+        Returns:
+            value (Dict[str, Any]): Dictionary containing HTTP response value.
+
         Raises:
             AirflowException: Raised to translate multiple errors into object
                 properly handled by the Airflow server.
@@ -147,9 +172,31 @@ class JIDSlurmOperator(BaseOperator):
         context: Dict[str, Any],
         check_for_error: List[str] = [],
     ) -> Dict[str, Any]:
+        """Submit job via JID and retrieve responses.
+
+        Remote Procedure Call (RPC).
+
+        Args:
+            endpoint (str): Which API endpoint to use.
+
+            control_doc (Dict[str, Union[str, Dict[str, str]]]): Dictionary for
+                JID call.
+
+            context (Dict[str, Any]): Airflow dictionary object.
+                https://airflow.apache.org/docs/apache-airflow/stable/templates-ref.html
+                contains a list of available variables and their description.
+
+            check_for_error (List[str]): A list of keywords to search for in a
+                response to indicate error conditions. Default [].
+
+        Returns:
+            value (Dict[str, Any]): Dictionary containing HTTP response value.
+        """
         # if not self.get_location(context) in self.locations:
         #     raise AirflowException(f"JID location {self.get_location(context)} is not configured")
-        dagrun_config: Dict[str, str] = context.get("dag_run").conf
+        dagrun_config: Dict[
+            str, Union[str, Dict[str, Union[str, int, List[str]]]]
+        ] = context.get("dag_run").conf
         experiment: str = dagrun_config.get("experiment")
         auth: Any = dagrun_config.get("Authorization")
 
@@ -169,7 +216,13 @@ class JIDSlurmOperator(BaseOperator):
         return value
 
     def execute(self, context: Dict[str, Any]) -> None:
-        """Method called by Airflow which submits SLURM Job via JID."""
+        """Method called by Airflow which submits SLURM Job via JID.
+
+        Args:
+            context (Dict[str, Any]): Airflow dictionary object.
+                https://airflow.apache.org/docs/apache-airflow/stable/templates-ref.html
+                contains a list of available variables and their description.
+        """
         # logger.info(f"Attempting to run at {self.get_location(context)}...")
         logger.info(f"Attempting to run at S3DF.")
         control_doc = self.create_control_doc(context)

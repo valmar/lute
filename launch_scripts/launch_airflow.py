@@ -39,7 +39,7 @@ if __name__ == "__main__":
     )
 
     args: argparse.Namespace
-    extra_args: List[str] # Should contain all SLURM arguments!
+    extra_args: List[str]  # Should contain all SLURM arguments!
     args, extra_args = parser.parse_known_args()
     airflow_instance: str = "http://172.24.5.247:8080/"
 
