@@ -4,6 +4,7 @@ import logging
 from typing import Type
 
 from lute.io.config import *
+from lute.io.models.base import TaskParameters
 from lute import tasks
 
 if __debug__:

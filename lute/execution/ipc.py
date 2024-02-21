@@ -30,6 +30,7 @@ import pickle
 import subprocess
 import select
 from typing import Optional, Any, Set
+from typing_extensions import Self
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -100,6 +101,20 @@ class Communicator(ABC):
     def __repr__(self):
         return self.__str__()
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self) -> None:
+        ...
+
+    def stage_communicator(self):
+        """Alternative method for staging outside of context manager."""
+        self.__enter__()
+
+    def clear_communicator(self):
+        """Alternative exit method outside of context manager."""
+        self.__exit__()
+
 
 class PipeCommunicator(Communicator):
     """Provides communication through pipes over stderr/stdout.
@@ -151,17 +166,26 @@ class PipeCommunicator(Communicator):
         else:
             signal: bytes = proc.stderr.read()
             if signal is not None:
-                signal: str = signal.decode()
+                try:
+                    signal: str = signal.decode()
+                except UnicodeDecodeError as err:
+                    signal: str = pickle.loads(signal)
             contents: bytes = proc.stdout.read()
             if contents is not None:
-                contents: str = contents.decode()
+                try:
+                    contents: str = contents.decode()
+                except UnicodeDecodeError as err:
+                    contents: str = pickle.loads(contents)
 
             if signal and signal not in LUTE_SIGNALS:
                 # Some tasks write on stderr
                 # If the signal channel has "non-signal" info, add it to
                 # contents
-                contents += signal
-                signal = ""
+                if not contents:
+                    contents = f"({signal})"
+                else:
+                    contents = f"{contents} ({signal})"
+                signal: str = ""
         return Message(contents=contents, signal=signal)
 
     def write(self, msg: Message) -> None:
@@ -308,6 +332,8 @@ class SocketCommunicator(Communicator):
         data_socket: socket.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         if self._party == Party.EXECUTOR:
+            if os.path.exists(socket_path):
+                os.unlink(socket_path)
             data_socket.bind(socket_path)
             data_socket.listen(1)
         elif self._party == Party.TASK:
@@ -336,6 +362,5 @@ class SocketCommunicator(Communicator):
             if self._party == Party.EXECUTOR:
                 os.unlink(socket_path)
 
-    def __del__(self):
-        if self._party == Party.EXECUTOR:
-            self._clean_up()
+    def __exit__(self):
+        self._clean_up()

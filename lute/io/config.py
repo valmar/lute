@@ -1,12 +1,5 @@
 """Machinary for the IO of configuration YAML files and their validation.
 
-Classes:
-    TaskParameters(BaseModel): Base class for Task parameters. Subclasses
-        specify a model of parameters and their types for validation.
-
-    FindOverlapXSSParameters(TaskParameters): Parameter model for the
-        FindOverlapXSS Task.
-
 Functions:
     parse_config(taskname: str, config_path: str) -> TaskParameters: Parse a
         configuration file and return a TaskParameters object of validated
@@ -18,88 +11,32 @@ Exceptions:
         Pydantic)
 """
 
-__all__ = ["parse_config", "TaskParameters"]
+__all__ = ["parse_config"]
 __author__ = "Gabriel Dorlhiac"
 
+import os
+import warnings
 from abc import ABC
-from typing import List, Dict, Iterator, Dict, Any, Union
+from typing import List, Dict, Iterator, Dict, Any, Union, Optional
 
 import yaml
-from pydantic import BaseModel, BaseSettings, ValidationError
+import yaml
+from pydantic import (
+    BaseModel,
+    BaseSettings,
+    HttpUrl,
+    PositiveInt,
+    NonNegativeInt,
+    Field,
+    conint,
+    root_validator,
+    validator,
+)
+from pydantic.dataclasses import dataclass
+
+from .models import *
 
 
-# Parameter models
-##################
-class TaskParameters(BaseSettings):
-    """Base class for models of task parameters to be validated.
-
-    Parameters are read from a configuration YAML file and validated against
-    subclasses of this type in order to ensure that both all parameters are
-    present, and that the parameters are of the correct type.
-
-    Note:
-        Pydantic is used for data validation. Pydantic does not perform "strict"
-        validation by default. Parameter values may be cast to conform with the
-        model specified by the subclass definition if it is possible to do so.
-        Consider whether this may cause issues (e.g. if a float is cast to an
-        int).
-    """
-
-    class Config:
-        env_prefix = "LUTE_"
-
-
-class TestParameters(TaskParameters):
-    """Parameters for the test Task `Test`."""
-
-    float_var: float = 0.01
-    str_var: str = "test"
-
-    class CompoundVar(BaseModel):
-        int_var: int = 1
-        dict_var: Dict[str, str] = {"a": "b"}
-
-    compound_var: CompoundVar
-
-
-class TestBinaryParameters(TaskParameters):
-    executable: str = "/sdf/home/d/dorlhiac/test_tasks/test_threads"
-    p_arg1: int = 1
-
-
-class TestSocketParameters(TaskParameters):
-    array_size: int = 10000
-    num_arrays: int = 10
-
-
-class FindOverlapXSSParameters(TaskParameters):
-    """TaskParameter model for FindOverlapXSS Task.
-
-    This Task determines spatial or temporal overlap between an optical pulse
-    and the FEL pulse based on difference scattering (XSS) signal. This Task
-    uses SmallData HDF5 files as a source.
-    """
-
-    class ExpConfig(BaseModel):
-        det_name: str
-        ipm_var: str
-        scan_var: Union[str, List[str]]
-
-    class Thresholds(BaseModel):
-        min_Iscat: Union[int, float]
-        min_ipm: Union[int, float]
-
-    class AnalysisFlags(BaseModel):
-        use_pyfai: bool = True
-        use_asymls: bool = False
-
-    exp_config: ExpConfig
-    thresholds: Thresholds
-    analysis_flags: AnalysisFlags
-
-
-# Config IO
-###########
 def parse_config(task_name: str = "test", config_path: str = "") -> TaskParameters:
     """Parse a configuration file and validate the contents.
 
@@ -124,6 +61,17 @@ def parse_config(task_name: str = "test", config_path: str = "") -> TaskParamete
         header: Dict[str, Any] = next(docs)
         config: Dict[str, Any] = next(docs)
 
-    parsed_config: TaskParameters = globals()[task_config_name](**config[task_name])
+    lute_config: Dict[str, AnalysisHeader] = {"lute_config": AnalysisHeader(**header)}
+    try:
+        task_config: Dict[str, Any] = dict(config[task_name])
+        lute_config.update(task_config)
+    except KeyError as err:
+        warnings.warn(
+            (
+                f"{task_name} has no parameter definitions in YAML file."
+                " Attempting default parameter initialization."
+            )
+        )
+    parsed_parameters: TaskParameters = globals()[task_config_name](**lute_config)
 
-    return parsed_config
+    return parsed_parameters
