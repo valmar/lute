@@ -1,6 +1,6 @@
 #!/sdf/group/lcls/ds/ana/sw/conda1/inst/envs/ana-4.0.47-py3/bin/python
 
-"""Script submitted by Automated Run Processor (ARP) to trigger Airflow DAG.
+"""Script submitted by Automated Run Processor (ARP) to trigger an Airflow DAG.
 
 This script is submitted by the ARP to the batch nodes. It triggers Airflow to
 begin running the tasks of the specified directed acyclic graph (DAG).
@@ -15,7 +15,7 @@ import datetime
 import logging
 import argparse
 import requests
-from typing import Dict, Union
+from typing import Dict, Union, List
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)
@@ -30,42 +30,17 @@ if __name__ == "__main__":
         description="Trigger Airflow to begin executing a LUTE DAG.",
         epilog="Refer to https://github.com/slac-lcls/lute for more information.",
     )
-    parser.add_argument(
-        "-a",
-        "--account",
-        type=str,
-        help="SLURM account.",
-        default=f"lcls:{os.environ.get('EXPERIMENT', '')}",
-    )
     parser.add_argument("-c", "--config", type=str, help="Path to config YAML file.")
     parser.add_argument(
         "-d", "--debug", type=str, help="Run in debug mode.", action="store_true"
     )
     parser.add_argument(
-        "-l",
-        "--lute_path",
-        type=str,
-        help="Path to the LUTE installation to use.",
-        default="/sdf/group/lcls/ds/tools/lute",
-    )
-    parser.add_argument(
-        "-n",
-        "--ncores",
-        type=int,
-        help="Number of cores. Add an extra core for the Executor.",
-        default=65,
-    )
-    parser.add_argument(
-        "-q", "--queue", type=str, help="SLURM queue.", default="milano"
-    )
-    parser.add_argument(
-        "-r", "--reservation", type=str, help="SLURM reservation", default=""
-    )
-    parser.add_argument(
         "-w", "--workflow", type=str, help="Workflow to run.", default="test"
     )
 
-    args: argparse.Namespace = parser.parse_args()
+    args: argparse.Namespace
+    extra_args: List[str] # Should contain all SLURM arguments!
+    args, extra_args = parser.parse_known_args()
     airflow_instance: str = "http://172.24.5.247:8080/"
 
     airflow_api_endpoints: Dict[str, str] = {
@@ -79,27 +54,24 @@ if __name__ == "__main__":
     )
     resp.raise_for_status()
 
-    params: Dict[str, Union[str, int]] = {
+    params: Dict[str, Union[str, int, List[str]]] = {
         "config_file": args.config,
-        # "dag": f"lute_{args.workflow}",
-        "queue": args.queue,
-        "ncores": args.ncores,
-        "experiment": os.environ["EXPERIMENT"],
-        "run_num": os.environ["RUN_NUM"],
-        "account": args.account,
+        "debug": args.debug,
     }
 
-    dag_run_data: Dict[str, Union[str, Dict[str, Union[str, int]]]] = {
+    # Experiment, run #, and ARP env variables come from ARP submission only
+    dag_run_data: Dict[str, Union[str, Dict[str, Union[str, int, List[str]]]]] = {
         "dag_run_id": str(uuid.uuid4()),
         "conf": {
-            "experiment": os.environ["EXPERIMENT"],
-            "run_id": f"{os.environ['RUN_NUM']}{datetime.datetime.utcnow().isoformat()}",
-            "JID_UPDATE_COUNTERS": os.environ["JID_UPDATE_COUNTERS"],
-            "ARP_ROOT_JOB_ID": os.environ["ARP_JOB_ID"],
-            "ARP_LOCATION": "S3DF",  # os.environ["ARP_LOCATION"],
-            "Authorization": os.environ["Authorization"],
+            "experiment": os.environ.get("EXPERIMENT"),
+            "run_id": f"{os.environ.get('RUN_NUM')}{datetime.datetime.utcnow().isoformat()}",
+            "JID_UPDATE_COUNTERS": os.environ.get("JID_UPDATE_COUNTERS"),
+            "ARP_ROOT_JOB_ID": os.environ.get("ARP_JOB_ID"),
+            "ARP_LOCATION": os.environ.get("ARP_LOCATION", "S3DF"),
+            "Authorization": os.environ.get("Authorization"),
             "user": getpass.getuser(),
-            "parameters": params,
+            "lute_params": params,
+            "slurm_params": extra_args,
         },
     }
 
