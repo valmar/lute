@@ -27,7 +27,11 @@ class IndexCrystFEL(BaseBinaryParameters):
         long_flags_use_eq: bool = True
         """Whether long command-line arguments are passed like `-long=arg`."""
 
-    executable: str = Field("", description="CrystFEL's indexing binary.", flag_type="")
+    executable: str = Field(
+        "/sdf/group/lcls/ds/tools/crystfel/0.10.2/bin/indexamajig",
+        description="CrystFEL's indexing binary.",
+        flag_type="",
+    )
     # Basic options
     infile: Optional[str] = Field(
         "", description="Path to input file.", flag_type="-", rename_param="i"
