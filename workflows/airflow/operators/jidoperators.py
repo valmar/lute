@@ -62,7 +62,7 @@ class JIDSlurmOperator(BaseOperator):
         self.lute_location: str = (
             f"{lute_location}/run_task.py"  # switch to os.path.split(__file__)...
         )
-        self.user: str = ""
+        self.user: str = user
         self.poke_interval: float = poke_interval
 
     def create_control_doc(
