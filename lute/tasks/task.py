@@ -246,6 +246,14 @@ class BinaryTask(Task):
         full_schema: Dict[
             str, Union[str, Dict[str, Any]]
         ] = self._task_parameters.schema()
+        short_flags_use_eq: bool
+        long_flags_use_eq: bool
+        if hasattr(self._task_parameters.Config, "short_flags_use_eq"):
+            short_flags_use_eq: bool = self._task_parameters.Config.short_flags_use_eq
+            long_flags_use_eq: bool = self._task_parameters.Config.long_flags_use_eq
+        else:
+            short_flags_use_eq = False
+            long_flags_use_eq = False
         for param, value in self._task_parameters.dict().items():
             # Clunky test with __dict__[param] because compound model-types are
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
@@ -260,13 +268,27 @@ class BinaryTask(Task):
                 self._add_to_jinja_context(param_name=param, value=value.params)
 
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
+            # Some model params do not match the commnad-line parameter names
+            param_repr: str
+            if "rename_param" in param_attributes:
+                param_repr = param_attributes["rename_param"]
+            else:
+                param_repr = param
             if "flag_type" in param_attributes:
                 flag: str = param_attributes["flag_type"]
                 if flag:
                     # "-" or "--" flags
                     if flag == "--" and isinstance(value, bool) and not value:
                         continue
-                    self._args_list.append(f"{flag}{param}")
+                    constructed_flag: str = f"{flag}{param_repr}"
+                    if flag == "-" and short_flags_use_eq:
+                        constructed_flag = f"{constructed_flag}={value}"
+                        continue
+                    elif flag == "--" and long_flags_use_eq:
+                        constructed_flag = f"{constructed_flag}={value}"
+                        continue
+                    self._args_list.append(f"{constructed_flag}")
+                    # self._args_list.append(f"{flag}{param_repr}")
                     if flag == "--" and isinstance(value, bool) and value:
                         # On/off flag, e.g. something like --verbose: No Arg
                         continue
@@ -276,16 +298,22 @@ class BinaryTask(Task):
                     category=PendingDeprecationWarning,
                 )
                 if len(param) == 1:  # Single-dash flags
-                    self._args_list.append(f"-{param}")
+                    if short_flags_use_eq:
+                        self._args_list.append(f"-{param_repr}={value}")
+                        continue
+                    self._args_list.append(f"-{param_repr}")
                 elif "p_arg" in param:  # Positional arguments
                     pass
                 else:  # Double-dash flags
                     if isinstance(value, bool) and not value:
                         continue
-                    self._args_list.append(f"--{param}")
+                    if long_flags_use_eq:
+                        self._args_list.append(f"--{param_repr}={value}")
+                        continue
+                    self._args_list.append(f"--{param_repr}")
                     if isinstance(value, bool) and value:
                         continue
-            if value != "":
+            if value != "" and value is not None:
                 # Cannot have empty values in argument list for execvp
                 # So far this only comes for '', but do want to include, e.g. 0
                 self._args_list.append(f"{value}")

@@ -124,8 +124,11 @@ class BaseBinaryParameters(TaskParameters):
     used for filling in third party configuration files.
     """
 
-    class Config:
-        extra: str = "allow"
+    class Config(TaskParameters.Config):
+        short_flags_use_eq: bool = False
+        """Whether short command-line arguments are passed like `-x=arg`."""
+        long_flags_use_eq: bool = False
+        """Whether long command-line arguments are passed like `-long=arg`."""
 
     # lute_template_cfg: TemplateConfig
 
