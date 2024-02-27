@@ -1,4 +1,4 @@
-"""Models for serial femtosecond crystallography Tasks.
+"""Models for serial femtosecond crystallography indexing.
 
 Classes:
     IndexCrystFEL(BaseBinaryParameters): Perform indexing of hits/peaks using
@@ -11,7 +11,6 @@ __author__ = "Gabriel Dorlhiac"
 from typing import Union, List, Optional, Dict, Any
 
 from pydantic import (
-    BaseModel,
     AnyUrl,
     PositiveInt,
     PositiveFloat,
@@ -21,7 +20,8 @@ from pydantic import (
     validator,
 )
 
-from .base import TaskParameters, BaseBinaryParameters
+from .base import BaseBinaryParameters
+from ..db import read_latest_db_entry
 
 
 class IndexCrystFELParameters(BaseBinaryParameters):
@@ -42,10 +42,10 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         flag_type="",
     )
     # Basic options
-    infile: Optional[str] = Field(
+    in_file: Optional[str] = Field(
         "", description="Path to input file.", flag_type="-", rename_param="i"
     )
-    outfile: str = Field(
+    out_file: str = Field(
         description="Path to output file.", flag_type="-", rename_param="o"
     )
     geometry: str = Field(
@@ -375,3 +375,12 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         flag_type="--",
         rename_param="harvest-file",
     )
+
+    @validator("in_file", always=True)
+    def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
+        if in_file == "":
+            filename: str = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
+            )
+            in_file: str = f"{values['lute_config'].work_dir}/{filename}"
+        return in_file
