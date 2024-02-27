@@ -21,7 +21,6 @@ from pydantic import (
     PositiveInt,
     NonNegativeInt,
     Field,
-    conint,
     validator,
 )
 
@@ -32,8 +31,10 @@ class SubmitSMDParameters(BaseBinaryParameters):
     """Parameters for running smalldata to produce reduced HDF5 files."""
 
     executable: str = Field("mpirun", description="MPI executable.", flag_type="")
-    np: conint(gt=2, le=120) = Field(
-        120, description="Number of processes", flag_type="-"
+    np: PositiveInt = Field(
+        int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1,
+        description="Number of processes",
+        flag_type="-",
     )
     p_arg1: str = Field(
         "python", description="Executable to run with mpi (i.e. python).", flag_type=""
