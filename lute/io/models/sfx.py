@@ -4,6 +4,10 @@ Classes:
     IndexCrystFEL(BaseBinaryParameters): Perform indexing of hits/peaks using
         CrystFEL's `indexamajig`.
 """
+
+__all__ = ["IndexCrystFELParameters"]
+__author__ = "Gabriel Dorlhiac"
+
 from typing import Union, List, Optional, Dict, Any
 
 from pydantic import (
@@ -20,8 +24,13 @@ from pydantic import (
 from .base import TaskParameters, BaseBinaryParameters
 
 
-class IndexCrystFEL(BaseBinaryParameters):
-    """Parameters for CrystFEL's `indexamajig`."""
+class IndexCrystFELParameters(BaseBinaryParameters):
+    """Parameters for CrystFEL's `indexamajig`.
+
+    There are many parameters, and many combinations. For more information on
+    usage, please refer to the CrystFEL documentation, here:
+    https://www.desy.de/~twhite/crystfel/manual-indexamajig.html
+    """
 
     class Config(BaseBinaryParameters.Config):
         long_flags_use_eq: bool = True
@@ -289,3 +298,79 @@ class IndexCrystFEL(BaseBinaryParameters):
         rename_param="xgandalf-fast-execution",
     )
     # pinkIndexer parameters
+    # asdf_fast: bool = Field(False, description="Enable fast mode for asdf. 3x faster for 7% loss in accuracy.", flag_type="--", rename_param="asdf-fast")
+    # Integration parameters
+    integration: str = Field(
+        "rings-nocen", description="Method for integrating reflections.", flag_type="--"
+    )
+    fix_profile_radius: Optional[float] = Field(
+        description="Fix the profile radius (m^{-1})",
+        flag_type="--",
+        rename_param="fix-profile-radius",
+    )
+    fix_divergence: Optional[float] = Field(
+        0,
+        description="Fix the divergence (rad, full angle).",
+        flag_type="--",
+        rename_param="fix-divergence",
+    )
+    int_radius: str = Field(
+        "4,5,7",
+        description="Inner, middle, and outer radii for 3-ring integration.",
+        flag_type="--",
+        rename_param="int-radius",
+    )
+    int_diag: str = Field(
+        "none",
+        description="Show detailed information on integration when condition is met.",
+        flag_type="--",
+        rename_param="int-diag",
+    )
+    push_res: str = Field(
+        "infinity",
+        description="Integrate `x` higher than apparent resolution limit (nm-1).",
+        flag_type="--",
+        rename_param="push-res",
+    )
+    overpredict: bool = Field(
+        False,
+        description="Over-predict reflections. Maybe useful with post-refinement.",
+        flag_type="--",
+    )
+    cell_parameters_only: bool = Field(
+        False, description="Do not predict refletions at all", flag_type="--"
+    )
+    # Output parameters
+    no_non_hits_in_stream: bool = Field(
+        False,
+        description="Exclude non-hits from the stream file.",
+        flag_type="--",
+        rename_param="no-non-hits-in-stream",
+    )
+    copy_hheader: Optional[str] = Field(
+        description="Copy information from header in the image to output stream.",
+        flag_type="--",
+        rename_param="copy-hheader",
+    )
+    no_peaks_in_stream: bool = Field(
+        False,
+        description="Do not record peaks in stream file.",
+        flag_type="--",
+        rename_param="no-peaks-in-stream",
+    )
+    no_refls_in_stream: bool = Field(
+        False,
+        description="Do not record reflections in stream.",
+        flag_type="--",
+        rename_param="no-refls-in-stream",
+    )
+    serial_offset: Optional[PositiveInt] = Field(
+        description="Start numbering at `x` instead of 1.",
+        flag_type="--",
+        rename_param="serial-offset",
+    )
+    harvest_file: Optional[str] = Field(
+        description="Write parameters to file in JSON format.",
+        flag_type="--",
+        rename_param="harvest-file",
+    )
