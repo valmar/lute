@@ -259,6 +259,7 @@ class BinaryTask(Task):
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
             if (
                 param == "executable"
+                or value is None
                 or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
                 or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
             ):
@@ -313,7 +314,7 @@ class BinaryTask(Task):
                     self._args_list.append(f"--{param_repr}")
                     if isinstance(value, bool) and value:
                         continue
-            if value != "" and value is not None:
+            if value != "":
                 # Cannot have empty values in argument list for execvp
                 # So far this only comes for '', but do want to include, e.g. 0
                 self._args_list.append(f"{value}")

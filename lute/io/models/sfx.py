@@ -34,7 +34,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
 
     class Config(BaseBinaryParameters.Config):
         long_flags_use_eq: bool = True
-        """Whether long command-line arguments are passed like `-long=arg`."""
+        """Whether long command-line arguments are passed like `--long=arg`."""
 
     executable: str = Field(
         "/sdf/group/lcls/ds/tools/crystfel/0.10.2/bin/indexamajig",
@@ -298,6 +298,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="xgandalf-fast-execution",
     )
     # pinkIndexer parameters
+    # ...
     # asdf_fast: bool = Field(False, description="Enable fast mode for asdf. 3x faster for 7% loss in accuracy.", flag_type="--", rename_param="asdf-fast")
     # Integration parameters
     integration: str = Field(
