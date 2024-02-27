@@ -428,6 +428,58 @@ class Executor(BaseExecutor):
         self._task_loop(proc)  # Perform a final read.
 
 
+class MPIExecutor(Executor):
+    """Runs first-party Tasks that require MPI.
+
+    This Executor is otherwise identical to the standard Executor, except it
+    uses `mpirun` for `Task` submission. Currently this Executor assumes a job
+    has been submitted using SLURM as a first step. It will determine the number
+    of MPI ranks based on the resources requested. As a fallback, it will try
+    to determine the number of local cores available for cases where a job has
+    not been submitted via SLURM. On S3DF, the second determination mechanism
+    should accurately match the environment variable provided by SLURM indicating
+    resources allocated.
+
+    This Executor will submit the Task to run with a number of processes equal
+    to the total number of cores available minus 1. A single core is reserved
+    for the Executor itself.
+
+    Methods:
+        execute_task(): Run the task as a subprocess using `mpirun`.
+    """
+
+    def execute_task(self) -> None:
+        """Run the requested Task as a subprocess."""
+        executable_path: str = "subprocess_task.py"
+        config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
+        params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
+
+        py_cmd: str = ""
+        mpi_cmd: str = f"mpirun -np {int(os.environ.get('SLURM_NPROCS', len(os.sched_getaffinity(0)))) - 1}"
+        if __debug__:
+            py_cmd = f"python -B -u -m mpi4py.run {executable_path} {params}"
+        else:
+            py_cmd = f"python -OB -u -m mpi4py.run {executable_path} {params}"
+
+        cmd: str = f"{mpi_cmd} {py_cmd}"
+        proc: subprocess.Popen = self._submit_task(cmd)
+
+        while self._task_is_running(proc):
+            self._task_loop(proc)
+            time.sleep(self._analysis_desc.poll_interval)
+
+        os.set_blocking(proc.stdout.fileno(), True)
+        os.set_blocking(proc.stderr.fileno(), True)
+
+        self._finalize_task(proc)
+        proc.stdout.close()
+        proc.stderr.close()
+        self._store_configuration()
+        proc.wait()
+        for comm in self._communicators:
+            comm.clear_communicator()
+
+
 _SIGNUM: TypeAlias = Union[int, signal.Signals]
 _HANDLER: TypeAlias = Union[
     Callable[[int, Union[types.FrameType, None]], Any], int, signal.Handlers, None
