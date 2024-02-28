@@ -19,7 +19,8 @@ import getpass
 import time
 import requests
 import logging
-from typing import Dict, Any, Union, List
+import re
+from typing import Dict, Any, Union, List, Optional
 
 from airflow.models import BaseOperator
 from airflow.exceptions import AirflowException
@@ -54,6 +55,7 @@ class JIDSlurmOperator(BaseOperator):
         lute_location: str,
         user: str = getpass.getuser(),
         poke_interval: float = 30.0,
+        max_cores: Optional[int] = None,
         *args,
         **kwargs,
     ) -> None:
@@ -64,6 +66,7 @@ class JIDSlurmOperator(BaseOperator):
         )
         self.user: str = user
         self.poke_interval: float = poke_interval
+        self.max_cores: Optional[int] = max_cores
 
     def create_control_doc(
         self, context: Dict[str, Any]
@@ -101,6 +104,16 @@ class JIDSlurmOperator(BaseOperator):
 
         # slurm_params holds a List[str]
         slurm_param_str: str = " ".join(dagrun_config.get("slurm_params"))
+        # Cap max cores used by a managed Task if that is requested
+        pattern: str = r"(?<=\bntasks=)\d+"
+        ntasks: int
+        try:
+            ntasks = int(re.findall(pattern, slurm_param_str)[0])
+        except IndexError as err: # If `ntasks` not passed - 1 is default
+            ntasks = 1
+        if self.max_cores is not None and ntasks > self.max_cores:
+            slurm_param_str = re.sub(pattern, f"{self.max_cores}", slurm_param_str)
+
         parameter_str: str = f"{lute_param_str} {slurm_param_str}"
 
         jid_job_definition: Dict[str, str] = {
