@@ -52,18 +52,14 @@ class JIDSlurmOperator(BaseOperator):
     @apply_defaults
     def __init__(
         self,
-        lute_location: str,
         user: str = getpass.getuser(),
         poke_interval: float = 30.0,
         max_cores: Optional[int] = None,
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
-        self.task_id: str = ""
-        self.lute_location: str = (
-            f"{lute_location}/run_task.py"  # switch to os.path.split(__file__)...
-        )
+        super().__init__(*args, **kwargs) # Initializes self.task_id
+        self.lute_location: str = ""
         self.user: str = user
         self.poke_interval: float = poke_interval
         self.max_cores: Optional[int] = max_cores
@@ -90,6 +86,9 @@ class JIDSlurmOperator(BaseOperator):
             str, Union[str, Dict[str, Union[str, int, List[str]]]]
         ] = context.get("dag_run").conf
 
+        self.lute_location = dagrun_config.get(
+            "lute_location", "/sdf/group/lcls/ds/tools/lute/latest"
+        )
         lute_params: Dict[str, str] = dagrun_config.get("lute_params", {})
 
         config_path: str = lute_params["config_file"]
@@ -109,7 +108,7 @@ class JIDSlurmOperator(BaseOperator):
         ntasks: int
         try:
             ntasks = int(re.findall(pattern, slurm_param_str)[0])
-        except IndexError as err: # If `ntasks` not passed - 1 is default
+        except IndexError as err:  # If `ntasks` not passed - 1 is default
             ntasks = 1
         if self.max_cores is not None and ntasks > self.max_cores:
             slurm_param_str = re.sub(pattern, f"{self.max_cores}", slurm_param_str)

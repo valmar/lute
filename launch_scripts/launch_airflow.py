@@ -15,6 +15,7 @@ import datetime
 import logging
 import argparse
 import requests
+from requests.auth import HTTPBasicAuth
 from typing import Dict, Union, List
 
 if __debug__:
@@ -31,10 +32,10 @@ if __name__ == "__main__":
         epilog="Refer to https://github.com/slac-lcls/lute for more information.",
     )
     parser.add_argument("-c", "--config", type=str, help="Path to config YAML file.")
+    parser.add_argument("-d", "--debug", help="Run in debug mode.", action="store_true")
     parser.add_argument(
-        "-d", "--debug", help="Run in debug mode.", action="store_true"
+        "--test", help="Use test Airflow instance.", action="store_true"
     )
-    parser.add_argument("--test", help="Use test Airflow instance.", action="store_true")
     parser.add_argument(
         "-w", "--workflow", type=str, help="Workflow to run.", default="test"
     )
@@ -75,6 +76,7 @@ if __name__ == "__main__":
             "ARP_LOCATION": os.environ.get("ARP_LOCATION", "S3DF"),
             "Authorization": os.environ.get("Authorization"),
             "user": getpass.getuser(),
+            "lute_location": os.path.abspath(f"{os.path.dirname(__file__)}/.."),
             "lute_params": params,
             "slurm_params": extra_args,
         },
