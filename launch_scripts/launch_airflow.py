@@ -32,8 +32,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("-c", "--config", type=str, help="Path to config YAML file.")
     parser.add_argument(
-        "-d", "--debug", type=str, help="Run in debug mode.", action="store_true"
+        "-d", "--debug", help="Run in debug mode.", action="store_true"
     )
+    parser.add_argument("--test", help="Use test Airflow instance.", action="store_true")
     parser.add_argument(
         "-w", "--workflow", type=str, help="Workflow to run.", default="test"
     )
@@ -41,7 +42,11 @@ if __name__ == "__main__":
     args: argparse.Namespace
     extra_args: List[str]  # Should contain all SLURM arguments!
     args, extra_args = parser.parse_known_args()
-    airflow_instance: str = "http://172.24.5.247:8080/"
+    airflow_instance: str
+    if args.test:
+        airflow_instance = "http://172.24.5.190:8080/"
+    else:
+        airflow_instance = "http://172.24.5.247:8080/"
 
     airflow_api_endpoints: Dict[str, str] = {
         "health": "api/v1/health",
