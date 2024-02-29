@@ -27,9 +27,11 @@ dag: DAG = DAG(
     description=description,
 )
 
-tester: JIDSlurmOperator = JIDSlurmOperator(task_id="Tester", dag=dag)
-binary_tester: JIDSlurmOperator = JIDSlurmOperator(task_id="BinaryTester", dag=dag)
-socket_tester: JIDSlurmOperator = JIDSlurmOperator(task_id="SocketTester", dag=dag)
+tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=2, task_id="Tester", dag=dag)
+binary_tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=5, task_id="BinaryTester", dag=dag)
+socket_tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=2, task_id="SocketTester", dag=dag)
+write_tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=2, task_id="WriteTester", dag=dag)
+read_tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=2, task_id="ReadTester", dag=dag)
 
 tester >> binary_tester
-tester >> socket_tester
+tester >> socket_tester >> write_tester >> read_tester
