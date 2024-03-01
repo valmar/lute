@@ -84,7 +84,7 @@ class RequestOnlyOperator(BaseOperator):
         }
 
         uri: str = (
-            "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/{experiment}/start_job/"
+            "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/{experiment}/start_job"
         )
         # Endpoints have the string "{experiment}" in them
         uri = uri.format(experiment=dagrun_config.get("experiment"))
