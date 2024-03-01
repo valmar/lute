@@ -34,6 +34,7 @@ else:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+
 class RequestOnlyOperator(BaseOperator):
     """This Operator makes a JID request and exits."""
 
@@ -44,10 +45,10 @@ class RequestOnlyOperator(BaseOperator):
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs) # Initializes self.task_id
+        super().__init__(*args, **kwargs)  # Initializes self.task_id
         self.user: str = user
 
-     def execute(self, context: Dict[str, Any]) -> None:
+    def execute(self, context: Dict[str, Any]) -> None:
         """Method called by Airflow which submits SLURM Job via JID.
 
         Args:
@@ -97,12 +98,7 @@ class RequestOnlyOperator(BaseOperator):
             raise AirflowException(f"Error from JID {resp}: {resp.content}")
         value: Dict[str, Any] = json.get("value")
         logger.info(f"JobID {value['tool_id']} successfully submitted!")
-        control_doc = self.create_control_doc(context)
-        logger.info(control_doc)
-        logger.info(f"{self.jid_api_location}/{self.jid_api_endpoints['start_job']}")
-        msg: Dict[str, Any] = self.rpc(
-            endpoint="start_job", control_doc=control_doc, context=context
-        )
+
 
 class JIDSlurmOperator(BaseOperator):
     """Airflow Operator which submits SLURM jobs through the JID."""
@@ -127,7 +123,7 @@ class JIDSlurmOperator(BaseOperator):
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs) # Initializes self.task_id
+        super().__init__(*args, **kwargs)  # Initializes self.task_id
         self.lute_location: str = ""
         self.user: str = user
         self.poke_interval: float = poke_interval
