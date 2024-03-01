@@ -84,7 +84,7 @@ class RequestOnlyOperator(BaseOperator):
         }
 
         uri: str = (
-            "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/{experiment}/start_job"
+            "https://psdm.slac.stanford.edu/arps3dfjid/jid/ws/{experiment}/start_job"
         )
         # Endpoints have the string "{experiment}" in them
         uri = uri.format(experiment=dagrun_config.get("experiment"))
@@ -104,7 +104,7 @@ class JIDSlurmOperator(BaseOperator):
 
     ui_color: str = "#006699"
 
-    jid_api_location: str = "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws"
+    jid_api_location: str = "https://psdm.slac.stanford.edu/arps3dfjid/jid/ws"
     """S3DF JID API location."""
 
     jid_api_endpoints: Dict[str, str] = {
