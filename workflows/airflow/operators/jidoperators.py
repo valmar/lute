@@ -91,11 +91,12 @@ class RequestOnlyOperator(BaseOperator):
         auth: Any = dagrun_config.get("Authorization")
         logger.info(f"Calling {uri} with {control_doc}...")
 
-        print(requests.__file__)
+        logger.info(requests.__file__)
         resp: requests.models.Response = requests.post(
             uri, json=control_doc, headers={"Authorization": auth}
         )
-        print(requests.__file__)
+        logger.info(f"Status code: {resp.status_code}")
+        logger.info(requests.__file__)
 
 
 class JIDSlurmOperator(BaseOperator):
@@ -107,9 +108,9 @@ class JIDSlurmOperator(BaseOperator):
     """S3DF JID API location."""
 
     jid_api_endpoints: Dict[str, str] = {
-        "start_job": "{experiment}/start_job/",
-        "job_statuses": "job_statuses/",
-        "job_log_file": "{experiment}/job_log_file/",
+        "start_job": "{experiment}/start_job",
+        "job_statuses": "job_statuses",
+        "job_log_file": "{experiment}/job_log_file",
     }
 
     @apply_defaults
