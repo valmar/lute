@@ -96,11 +96,6 @@ class RequestOnlyOperator(BaseOperator):
             uri, json=control_doc, headers={"Authorization": auth}
         )
         print(requests.__file__)
-        json: Dict[str, Union[str, int]] = resp.json()
-        if not json.get("success", "") in (True,):
-            raise AirflowException(f"Error from JID {resp}: {resp.content}")
-        value: Dict[str, Any] = json.get("value")
-        logger.info(f"JobID {value['tool_id']} successfully submitted!")
 
 
 class JIDSlurmOperator(BaseOperator):
