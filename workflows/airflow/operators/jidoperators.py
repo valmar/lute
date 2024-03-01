@@ -11,7 +11,7 @@ Classes:
         done exclusively via the JID API.
 """
 
-__all__ = ["JIDSlurmOperator"]
+__all__ = ["JIDSlurmOperator", "RequestOnlyOperator"]
 __author__ = "Fred Poitevin, Murali Shankar"
 
 import uuid
@@ -34,6 +34,75 @@ else:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+class RequestOnlyOperator(BaseOperator):
+    """This Operator makes a JID request and exits."""
+
+    @apply_defaults
+    def __init__(
+        self,
+        user: str = getpass.getuser(),
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs) # Initializes self.task_id
+        self.user: str = user
+
+     def execute(self, context: Dict[str, Any]) -> None:
+        """Method called by Airflow which submits SLURM Job via JID.
+
+        Args:
+            context (Dict[str, Any]): Airflow dictionary object.
+                https://airflow.apache.org/docs/apache-airflow/stable/templates-ref.html
+                contains a list of available variables and their description.
+        """
+        # logger.info(f"Attempting to run at {self.get_location(context)}...")
+        logger.info(f"Attempting to run at S3DF.")
+        dagrun_config: Dict[
+            str, Union[str, Dict[str, Union[str, int, List[str]]]]
+        ] = context.get("dag_run").conf
+        jid_job_definition: Dict[str, str] = {
+            "_id": str(uuid.uuid4()),
+            "name": self.task_id,
+            "executable": f"myexecutable.sh",
+            "trigger": "MANUAL",
+            "location": dagrun_config.get("ARP_LOCATION", "S3DF"),
+            "parameters": "--partition=milano --account=lcls:data",
+            "run_as_user": self.user,
+        }
+
+        control_doc: Dict[str, Union[str, Dict[str, str]]] = {
+            "_id": str(uuid.uuid4()),
+            "arp_root_job_id": dagrun_config.get("ARP_ROOT_JOB_ID"),
+            "experiment": dagrun_config.get("experiment"),
+            "run_num": dagrun_config.get("run_id"),
+            "user": dagrun_config.get("user"),
+            "status": "",
+            "tool_id": "",
+            "def_id": str(uuid.uuid4()),
+            "def": jid_job_definition,
+        }
+
+        uri: str = f"http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/start_job/"
+        # Endpoints have the string "{experiment}" in them
+        auth: Any = dagrun_config.get("Authorization")
+        logger.info(f"Calling {uri} with {control_doc}...")
+
+        print(requests.__file__)
+        resp: requests.models.Response = requests.post(
+            uri, json=control_doc, headers={"Authorization": auth}
+        )
+        print(requests.__file__)
+        json: Dict[str, Union[str, int]] = resp.json()
+        if not json.get("success", "") in (True,):
+            raise AirflowException(f"Error from JID {resp}: {resp.content}")
+        value: Dict[str, Any] = json.get("value")
+        logger.info(f"JobID {value['tool_id']} successfully submitted!")
+        control_doc = self.create_control_doc(context)
+        logger.info(control_doc)
+        logger.info(f"{self.jid_api_location}/{self.jid_api_endpoints['start_job']}")
+        msg: Dict[str, Any] = self.rpc(
+            endpoint="start_job", control_doc=control_doc, context=context
+        )
 
 class JIDSlurmOperator(BaseOperator):
     """Airflow Operator which submits SLURM jobs through the JID."""
@@ -44,9 +113,9 @@ class JIDSlurmOperator(BaseOperator):
     """S3DF JID API location."""
 
     jid_api_endpoints: Dict[str, str] = {
-        "start_job": "{experiment}/start_job",
-        "job_statuses": "job_statuses",
-        "job_log_file": "{experiment}/job_log_file",
+        "start_job": "{experiment}/start_job/",
+        "job_statuses": "job_statuses/",
+        "job_log_file": "{experiment}/job_log_file/",
     }
 
     @apply_defaults
