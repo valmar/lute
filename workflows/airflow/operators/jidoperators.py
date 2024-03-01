@@ -83,8 +83,11 @@ class RequestOnlyOperator(BaseOperator):
             "def": jid_job_definition,
         }
 
-        uri: str = f"http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/start_job/"
+        uri: str = (
+            "http://psdm.slac.stanford.edu/arps3dfjid/jid/ws/{experiment}/start_job/"
+        )
         # Endpoints have the string "{experiment}" in them
+        uri = uri.format(experiment=dagrun_config.get("experiment"))
         auth: Any = dagrun_config.get("Authorization")
         logger.info(f"Calling {uri} with {control_doc}...")
 
