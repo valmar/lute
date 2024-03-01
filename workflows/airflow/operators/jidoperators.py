@@ -313,14 +313,12 @@ class JIDSlurmOperator(BaseOperator):
         time.sleep(10)  # Wait for job to queue.... FIXME
         logger.info("Checking for job completion.")
         while jobs[0].get("status") in ("RUNNING", "SUBMITTED"):
-            jobs = [
-                self.rpc(
-                    "job_statuses",
-                    jobs[0],
-                    context,
-                    check_for_error=[" error: ", "Traceback"],
-                )
-            ]
+            jobs = self.rpc(
+                endpoint="job_statuses",
+                control_doc=jobs,
+                context=context,
+                check_for_error=[" error: ", "Traceback"],
+            )
             time.sleep(self.poke_interval)
 
         # Logs out to xcom
