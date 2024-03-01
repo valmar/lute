@@ -1,4 +1,4 @@
-#!/sdf/group/lcls/ds/ana/sw/conda1/inst/envs/ana-4.0.47-py3/bin/python
+#!/sdf/group/lcls/ds/ana/sw/conda1/inst/envs/ana-4.0.59-py3/bin/python
 
 """Script submitted by Automated Run Processor (ARP) to trigger an Airflow DAG.
 
@@ -16,7 +16,7 @@ import logging
 import argparse
 import requests
 from requests.auth import HTTPBasicAuth
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Any
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)

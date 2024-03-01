@@ -129,7 +129,7 @@ class JIDSlurmOperator(BaseOperator):
             "_id": str(uuid.uuid4()),
             "arp_root_job_id": dagrun_config.get("ARP_ROOT_JOB_ID"),
             "experiment": dagrun_config.get("experiment"),
-            "run_id": dagrun_config.get("run_id"),
+            "run_num": dagrun_config.get("run_id"),
             "user": dagrun_config.get("user"),
             "status": "",
             "tool_id": "",
