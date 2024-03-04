@@ -259,7 +259,13 @@ class BaseExecutor(ABC):
 
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
-        executable_path: str = "subprocess_task.py"
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        executable_path: str
+        if lute_path is not None:
+            executable_path = f"{lute_path}/subprocess_task.py"
+        else:
+            logger.debug("Absolute path to subprocess.py not found.")
+            executable_path = "subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
