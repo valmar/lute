@@ -35,7 +35,6 @@ import signal
 from typing import Dict, Callable, List, Union, Any, Tuple, Optional
 from typing_extensions import Self, TypeAlias
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import warnings
 import types
 import resource

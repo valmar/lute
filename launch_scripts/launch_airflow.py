@@ -14,9 +14,10 @@ import getpass
 import datetime
 import logging
 import argparse
+from typing import Dict, Union, List, Any
+
 import requests
 from requests.auth import HTTPBasicAuth
-from typing import Dict, Union, List, Any
 
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)

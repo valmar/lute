@@ -17,10 +17,11 @@ __author__ = "Fred Poitevin, Murali Shankar"
 import uuid
 import getpass
 import time
-import requests
 import logging
 import re
 from typing import Dict, Any, Union, List, Optional
+
+import requests
 
 from airflow.models import BaseOperator
 from airflow.exceptions import AirflowException
