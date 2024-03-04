@@ -29,6 +29,8 @@ import socket
 import pickle
 import subprocess
 import select
+import logging
+import warnings
 from typing import Optional, Any, Set
 from typing_extensions import Self
 from dataclasses import dataclass
@@ -44,6 +46,18 @@ LUTE_SIGNALS: Set[str] = {
     "TASK_CANCELLED",
     "TASK_RESULT",
 }
+
+if __debug__:
+    warnings.simplefilter("default")
+    os.environ["PYTHONWARNINGS"] = "default"
+    logging.basicConfig(level=logging.DEBUG)
+    logging.captureWarnings(True)
+else:
+    logging.basicConfig(level=logging.INFO)
+    warnings.simplefilter("ignore")
+    os.environ["PYTHONWARNINGS"] = "ignore"
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class Party(Enum):
@@ -327,7 +341,14 @@ class SocketCommunicator(Communicator):
         try:
             socket_path = os.environ["LUTE_SOCKET"]
         except KeyError as err:
-            socket_path = "/tmp/.lock.sock"
+            import uuid
+            import tempfile
+
+            # Define a path,up and add to environment
+            # Executor-side always created first, Task will use the same one
+            socket_path = f"{tempfile.gettempdir()}/lute_{uuid.uuid4().hex}.sock"
+            os.environ["LUTE_SOCKET"] = socket_path
+            logger.debug(f"SocketCommunicator defines socket_path: {socket_path}")
 
         data_socket: socket.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
@@ -361,6 +382,11 @@ class SocketCommunicator(Communicator):
 
             if self._party == Party.EXECUTOR:
                 os.unlink(socket_path)
+
+    @property
+    def socket_path(self) -> str:
+        socket_path: str = self._data_socket.getsockname()
+        return socket_path
 
     def __exit__(self):
         self._clean_up()
