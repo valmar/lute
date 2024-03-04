@@ -62,7 +62,7 @@ fi
 SLURM_ARGS=$@
 
 # Setup logfile names - $EXPERIMENT and $RUN will be available if ARP submitted
-FORMAT_RUN=$(printf "%04d" ${RUN:-0})
+FORMAT_RUN=$(printf "%04d" ${RUN_NUM:-0})
 LOG_FILE="${TASK}_${EXPERIMENT:-EXP}_r${FORMAT_RUN}_$(date +'%Y-%m-%d_%H-%M-%S')"
 SLURM_ARGS+=" --output=${LOG_FILE}.out"
 SLURM_ARGS+=" --error=${LOG_FILE}.err"
