@@ -191,15 +191,15 @@ class PipeCommunicator(Communicator):
                 except UnicodeDecodeError as err:
                     contents: str = pickle.loads(contents)
 
-            if signal and signal not in LUTE_SIGNALS:
-                # Some tasks write on stderr
-                # If the signal channel has "non-signal" info, add it to
-                # contents
-                if not contents:
-                    contents = f"({signal})"
-                else:
-                    contents = f"{contents} ({signal})"
-                signal: str = ""
+        if signal and signal not in LUTE_SIGNALS:
+            # Some tasks write on stderr
+            # If the signal channel has "non-signal" info, add it to
+            # contents
+            if not contents:
+                contents = f"({signal})"
+            else:
+                contents = f"{contents} ({signal})"
+            signal: str = ""
         return Message(contents=contents, signal=signal)
 
     def write(self, msg: Message) -> None:

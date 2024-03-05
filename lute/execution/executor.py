@@ -39,6 +39,7 @@ import warnings
 import types
 import resource
 import copy
+import re
 
 from .ipc import *
 from ..tasks.task import *
@@ -256,6 +257,21 @@ class BaseExecutor(ABC):
         """
         ...
 
+    def _check_exceptions(self, msg: Message) -> bool:
+        """Check for exceptions in subprocess output."""
+        if not isinstance(msg.contents, str):
+            return False
+        err_patterns: List[str] = ["(?s)Traceback \(most recent call last\).*Error"]
+        for pattern in err_patterns:
+            if m := re.search(pattern, msg.contents):
+                err: str = re.findall("[A-Za-z]*Error", msg.contents)[0]
+                logger.info(
+                    f"\tTask failed with (at least) error: {err}\n\n{m.group()}"
+                )
+                self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+                return True
+        return False
+
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
@@ -288,8 +304,15 @@ class BaseExecutor(ABC):
         self._finalize_task(proc)
         proc.stdout.close()
         proc.stderr.close()
-        self._store_configuration()
         proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
         for comm in self._communicators:
             comm.clear_communicator()
 
@@ -378,6 +401,7 @@ class Executor(BaseExecutor):
             logger.info(
                 f"Executor: {self._analysis_desc.task_result.task_name} started"
             )
+            self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
 
         self.add_hook("task_started", task_started)
 
@@ -417,6 +441,8 @@ class Executor(BaseExecutor):
         """
         for communicator in self._communicators:
             msg: Message = communicator.read(proc)
+            if self._check_exceptions(msg):
+                break
             if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
                 hook: Callable[[None], None] = getattr(self.Hooks, msg.signal.lower())
                 hook(self, msg)

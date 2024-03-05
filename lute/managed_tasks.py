@@ -5,6 +5,7 @@ from .execution.executor import *
 #######
 Tester = Executor("Test")
 BinaryTester = Executor("TestBinary")
+BinaryErrTester = Executor("TestBinaryErr")
 SocketTester = Executor("TestSocket")
 WriteTester = Executor("TestWriteOutput")
 ReadTester = Executor("TestReadOutput")
