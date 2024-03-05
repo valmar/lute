@@ -476,4 +476,4 @@ def sigchld_handler(signum: _SIGNUM, frame: types.FrameType) -> None:
             logger.info("Task stopped.")
 
 
-signal.signal(signal.SIGCHLD, sigchld_handler)
+# signal.signal(signal.SIGCHLD, sigchld_handler)
