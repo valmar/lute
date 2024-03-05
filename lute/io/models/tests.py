@@ -57,10 +57,13 @@ class TestBinaryParameters(BaseBinaryParameters):
     executable: str = "/sdf/home/d/dorlhiac/test_tasks/test_threads"
     p_arg1: int = 1
 
+
 class TestBinaryErrParameters(BaseBinaryParameters):
     """Same as TestBinary, but exits with non-zero code."""
+
     executable: str = "/sdf/home/d/dorlhiac/test_tasks/test_threads_err"
     p_arg1: int = 1
+
 
 class TestSocketParameters(TaskParameters):
     array_size: int = 10000

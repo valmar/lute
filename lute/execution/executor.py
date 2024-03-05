@@ -39,7 +39,6 @@ import warnings
 import types
 import resource
 import copy
-import re
 
 from .ipc import *
 from ..tasks.task import *
@@ -257,21 +256,6 @@ class BaseExecutor(ABC):
         """
         ...
 
-    def _check_exceptions(self, msg: Message) -> bool:
-        """Check for exceptions in subprocess output."""
-        if not isinstance(msg.contents, str):
-            return False
-        err_patterns: List[str] = ["(?s)Traceback \(most recent call last\).*Error"]
-        for pattern in err_patterns:
-            if m := re.search(pattern, msg.contents):
-                err: str = re.findall("[A-Za-z]*Error", msg.contents)[0]
-                logger.info(
-                    f"\tTask failed with (at least) error: {err}\n\n{m.group()}"
-                )
-                self._analysis_desc.task_result.task_status = TaskStatus.FAILED
-                return True
-        return False
-
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
@@ -441,8 +425,6 @@ class Executor(BaseExecutor):
         """
         for communicator in self._communicators:
             msg: Message = communicator.read(proc)
-            if self._check_exceptions(msg):
-                break
             if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
                 hook: Callable[[None], None] = getattr(self.Hooks, msg.signal.lower())
                 hook(self, msg)
