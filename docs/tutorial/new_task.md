@@ -67,3 +67,21 @@ class RunTaskParameters(BaseBinaryParameters):
 #### FAQ
 1. How can I specify a default value which depends on another parameter?
 2. My new `Task` depends on the output of a previous `Task`, how can I specify this dependency?
+
+
+## Creating a "First-Party" `Task`
+### Specifying a `TaskParameters` Model for your `Task`.
+Parameter models have a format that must be followed for "Third-Party" `Task`s, but "First-Party" `Task`s have a little more liberty in how parameters are dealt with, since the `Task` will do all the parsing itself.
+
+To create a model, the basic steps are:
+1. If necessary, create a new module (e.g. `new_task_category.py`) under `lute.io.models`, or find an appropriate pre-existing module in that directory.
+  - An `import` statement must be added to `lute.io.models._init_` if a new module is created, so it can be found.
+  - If defining the model in a pre-existing module, make sure to modify the `__all__` statement to include it.
+2. Create a new model that inherits from `TaskParameters`. You can look at `lute.models.io.tests.TestReadOutputParameters` for an example. **The model must be named** `<YourTaskName>Parameters`
+  - You should include **all** relevant parameters here, including input file, output file, and any potentially adjustable parameters. These parameters **must** be included even if there are some implicit dependencies between `Task`s and it would make sense for the parameter to be auto-populated based on some other output. Creating this dependency is done with validators (see step 3.). All parameters should be overridable, and all `Task`s should be fully-independently configurable, based solely on their model and the configuration YAML.
+  - To follow the preferred format, parameters should be defined as: `param_name: type = Field([default value], description="This parameter does X.")`
+3. Use validators to do more complex things for your parameters, including populating default values dynamically:
+  - E.g. create default values that depend on other parameters in the model - see for example: [SubmitSMDParameters](https://github.com/slac-lcls/lute/blob/57f2a0889ec9603e3b8642f485c27df7d1f6e96f/lute/io/models/smd.py#L139).
+  - E.g. create default values that depend on other `Task`s by reading from the database - see for example: [TestReadOutputParameters](https://github.com/slac-lcls/lute/blob/57f2a0889ec9603e3b8642f485c27df7d1f6e96f/lute/io/models/tests.py#L75).
+4. The model will have access to some general configuration values by inheriting from `TaskParameters`. These parameters are all stored in `lute_config` which is an instance of `AnalysisHeader` ([defined here](https://github.com/slac-lcls/lute/blob/57f2a0889ec9603e3b8642f485c27df7d1f6e96f/lute/io/models/base.py#L42)).
+  - For example, the experiment and run number can be obtained from this object and a validator could use these values to define the default input file for the `Task`.
