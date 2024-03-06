@@ -42,7 +42,6 @@ do
     --debug)
         DEBUG=1
         shift
-        shift
         ;;
     *)
         POS+=("$1")
@@ -53,7 +52,7 @@ done
 set -- "${POS[@]}"
 
 if [[ -z ${CONFIGPATH} || -z ${TASK} ]]; then
-    echo "Path to LUTE config amd Task name are required!"
+    echo "Path to LUTE config and Task name are required!"
     usage
     exit
 fi
@@ -66,11 +65,8 @@ FORMAT_RUN=$(printf "%04d" ${RUN_NUM:-0})
 LOG_FILE="${TASK}_${EXPERIMENT:-EXP}_r${FORMAT_RUN}_$(date +'%Y-%m-%d_%H-%M-%S')"
 SLURM_ARGS+=" --output=${LOG_FILE}.out"
 SLURM_ARGS+=" --error=${LOG_FILE}.err"
-echo "Running ${TASK} with SLURM arguments: ${SLURM_ARGS}"
 
 export LUTE_SOCKET="/tmp/lute_${RANDOM}.sock"
-
-echo "Using socket ${LUTE_SOCKET}"
 
 # By default source the psana environment since most Tasks will use it.
 source /sdf/group/lcls/ds/ana/sw/conda1/manage/bin/psconda.sh
@@ -86,6 +82,11 @@ else
     CMD="python -OB ${EXECUTABLE} -c ${CONFIGPATH} -t ${TASK}"
 fi
 
-echo "${CMD}"
+echo "Submitting task ${TASK}"
+if [[ $DEBUG ]]; then
+    echo "Running ${TASK} with SLURM arguments: ${SLURM_ARGS}"
+    echo "Using socket ${LUTE_SOCKET}"
+    echo "${CMD}"
+fi
 
 sbatch $SLURM_ARGS --wrap "${CMD}"
