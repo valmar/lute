@@ -245,10 +245,13 @@ class JIDSlurmOperator(BaseOperator):
     def rpc(
         self,
         endpoint: str,
-        control_doc: Dict[str, Union[str, Dict[str, str]]],
+        control_doc: Union[
+            List[Dict[str, Union[str, Dict[str, str]]]],
+            Dict[str, Union[str, Dict[str, str]]],
+        ],
         context: Dict[str, Any],
         check_for_error: List[str] = [],
-    ) -> Dict[str, Any]:
+    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
         """Submit job via JID and retrieve responses.
 
         Remote Procedure Call (RPC).
@@ -305,6 +308,7 @@ class JIDSlurmOperator(BaseOperator):
         control_doc = self.create_control_doc(context)
         logger.info(control_doc)
         logger.info(f"{self.jid_api_location}/{self.jid_api_endpoints['start_job']}")
+        # start_job requires a dictionary
         msg: Dict[str, Any] = self.rpc(
             endpoint="start_job", control_doc=control_doc, context=context
         )
@@ -316,7 +320,7 @@ class JIDSlurmOperator(BaseOperator):
         while jobs[0].get("status") in ("RUNNING", "SUBMITTED"):
             jobs = self.rpc(
                 endpoint="job_statuses",
-                control_doc=jobs,
+                control_doc=jobs, # job_statuses requires a list
                 context=context,
                 check_for_error=[" error: ", "Traceback"],
             )
