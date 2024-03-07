@@ -121,4 +121,15 @@ TestBinary:
 TestSocket:
   array_size: 8000 # Size of arrays to send. 8000 floats ~ 6.4e4
   num_arrays: 10 # Number of arrays to send.
+
+IndexCrystFEL:
+  #in_file: ""            # Location of a CXI file
+  #out_file: ""           # Where to write the output stream file
+  geometry: ""            # Location of a geometry file
+  indexing: "mosflm"      # Indexing methods
+  int_radius: "4,5,7"     # Integration radii
+  tolerance: "5,5,5,1.5"  # Tolerances
+  multi: True
+  profile: True
+  no_revalidate: True
 ...

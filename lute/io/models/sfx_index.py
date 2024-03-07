@@ -49,7 +49,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         description="Path to output file.", flag_type="-", rename_param="o"
     )
     geometry: str = Field(
-        description="Path to geometry file.", flag_type="-", rename_param="g"
+        "", description="Path to geometry file.", flag_type="-", rename_param="g"
     )
     zmq_input: Optional[str] = Field(
         description="ZMQ address to receive data over. `input` and `zmq-input` are mutually exclusive",
@@ -123,7 +123,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="j",
     )
     no_check_prefix: bool = Field(
-        bool,
+        False,
         description="Don't attempt to correct the prefix if it seems incorrect.",
         flag_type="--",
         rename_param="no-check-prefix",
@@ -391,3 +391,13 @@ class IndexCrystFELParameters(BaseBinaryParameters):
             )
             in_file: str = f"{values['lute_config'].work_dir}/{filename}"
         return in_file
+
+    @validator("geometry", always=True)
+    def validate_geometry(cls, geometry: str, values: Dict[str, Any]) -> str:
+        if geometry == "":
+            ...
+        # filename: str = read_latest_db_entry(
+        #    f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
+        # )
+        # in_file: str = f"{values['lute_config'].work_dir}/{filename}"
+        return geometry
