@@ -5,7 +5,11 @@ Classes:
         CrystFEL's `indexamajig`.
 """
 
-__all__ = ["MergePartialatorParameters", "CompareHKLParameters", "ManipulateHKLParameters"]
+__all__ = [
+    "MergePartialatorParameters",
+    "CompareHKLParameters",
+    "ManipulateHKLParameters",
+]
 __author__ = "Gabriel Dorlhiac"
 
 from typing import Union, List, Optional, Dict, Any

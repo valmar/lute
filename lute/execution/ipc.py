@@ -29,6 +29,8 @@ import socket
 import pickle
 import subprocess
 import select
+import logging
+import warnings
 from typing import Optional, Any, Set
 from typing_extensions import Self
 from dataclasses import dataclass
@@ -44,6 +46,18 @@ LUTE_SIGNALS: Set[str] = {
     "TASK_CANCELLED",
     "TASK_RESULT",
 }
+
+if __debug__:
+    warnings.simplefilter("default")
+    os.environ["PYTHONWARNINGS"] = "default"
+    logging.basicConfig(level=logging.DEBUG)
+    logging.captureWarnings(True)
+else:
+    logging.basicConfig(level=logging.INFO)
+    warnings.simplefilter("ignore")
+    os.environ["PYTHONWARNINGS"] = "ignore"
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class Party(Enum):
@@ -177,15 +191,15 @@ class PipeCommunicator(Communicator):
                 except UnicodeDecodeError as err:
                     contents: str = pickle.loads(contents)
 
-            if signal and signal not in LUTE_SIGNALS:
-                # Some tasks write on stderr
-                # If the signal channel has "non-signal" info, add it to
-                # contents
-                if not contents:
-                    contents = f"({signal})"
-                else:
-                    contents = f"{contents} ({signal})"
-                signal: str = ""
+        if signal and signal not in LUTE_SIGNALS:
+            # Some tasks write on stderr
+            # If the signal channel has "non-signal" info, add it to
+            # contents
+            if not contents:
+                contents = f"({signal})"
+            else:
+                contents = f"{contents} ({signal})"
+            signal: str = ""
         return Message(contents=contents, signal=signal)
 
     def write(self, msg: Message) -> None:
@@ -361,6 +375,11 @@ class SocketCommunicator(Communicator):
 
             if self._party == Party.EXECUTOR:
                 os.unlink(socket_path)
+
+    @property
+    def socket_path(self) -> str:
+        socket_path: str = self._data_socket.getsockname()
+        return socket_path
 
     def __exit__(self):
         self._clean_up()

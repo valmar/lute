@@ -164,6 +164,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="p",
     )
     tolerance: str = Field(
+        "5,5,5,1.5",
         description=(
             "Tolerances (in percent) for unit cell comparison. "
             "Comma-separated list a,b,c,angle. Default=5,5,5,1.5"
@@ -212,6 +213,12 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         description="Skip refinement step.",
         flag_type="--",
         rename_param="no-refine",
+    )
+    no_revalidate: bool = Field(
+        False,
+        description="Skip revalidation step.",
+        flag_type="--",
+        rename_param="no-revalidate",
     )
     # TakeTwo specific parameters
     taketwo_member_threshold: PositiveInt = Field(

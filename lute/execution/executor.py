@@ -32,13 +32,10 @@ import subprocess
 import time
 import os
 import signal
-from typing import Dict, Callable, List, Union, Any, Tuple, Optional
-from typing_extensions import Self, TypeAlias
+from typing import Dict, Callable, List, Optional
+from typing_extensions import Self
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import warnings
-import types
-import resource
 import copy
 
 from .ipc import *
@@ -265,7 +262,9 @@ class BaseExecutor(ABC):
             executable_path = f"{lute_path}/subprocess_task.py"
         else:
             logger.debug("Absolute path to subprocess.py not found.")
-            executable_path = "subprocess_task.py"
+            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
+            os.environ["LUTE_PATH"] = lute_path
+            executable_path = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
@@ -490,39 +489,3 @@ class MPIExecutor(Executor):
         proc.wait()
         for comm in self._communicators:
             comm.clear_communicator()
-
-
-_SIGNUM: TypeAlias = Union[int, signal.Signals]
-_HANDLER: TypeAlias = Union[
-    Callable[[int, Union[types.FrameType, None]], Any], int, signal.Handlers, None
-]
-
-
-def get_executor(where: str) -> Optional[Executor]:
-    """Return the current Executor."""
-    objects: Dict[str, Any] = globals()
-    for _, obj in objects.items():
-        if isinstance(obj, Executor):
-            return obj
-    return None
-
-
-def sigchld_handler(signum: _SIGNUM, frame: types.FrameType) -> None:
-    """Handle child Task suspension and resumption from outside of Executor."""
-    # (pid, status, resource usage - can maybe infer errors, etc.)
-    ret: Tuple[int, int, resource.struct_rusage] = os.wait4(
-        -1, os.WUNTRACED | os.WCONTINUED
-    )
-    if os.WIFCONTINUED(ret[1]):
-        executor: Optional[Executor] = get_executor(__name__)
-        if executor:
-            executor._analysis_desc.task_result.task_status = TaskStatus.RUNNING
-            logger.info("Task resumed.")
-    elif os.WIFSTOPPED(ret[1]):
-        executor: Optional[Executor] = get_executor(__name__)
-        if executor:
-            executor._analysis_desc.task_result.task_status = TaskStatus.STOPPED
-            logger.info("Task stopped.")
-
-
-signal.signal(signal.SIGCHLD, sigchld_handler)

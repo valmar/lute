@@ -11,7 +11,7 @@ __author__ = "Gabriel Dorlhiac"
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Union, Type, TextIO, Optional
+from typing import Any, List, Dict, Union, Type, TextIO
 import os
 import warnings
 import signal
@@ -344,25 +344,3 @@ class BinaryTask(Task):
         signal: str = "NO_PICKLE_MODE"
         msg: Message = Message(signal=signal)
         self._report_to_executor(msg)
-
-
-def get_task(where: str) -> Optional[Task]:
-    """Return the current Task."""
-    objects: Dict[str, Any] = globals()
-    for _, obj in objects.items():
-        if isinstance(obj, Task):
-            return obj
-    return None
-
-
-def timeout_handler(signum: int, frame: types.FrameType) -> None:
-    """Log and exit gracefully on Task timeout."""
-    task: Optional[Task] = get_task(__name__)
-    if task:
-        msg: Message = Message(contents="Timed out.", signal="TASK_FAILED")
-        task._report_to_executor(msg)
-        task.clean_up_timeout()
-        sys.exit(-1)
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
