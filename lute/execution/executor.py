@@ -286,8 +286,15 @@ class BaseExecutor(ABC):
         self._finalize_task(proc)
         proc.stdout.close()
         proc.stderr.close()
-        self._store_configuration()
         proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
         for comm in self._communicators:
             comm.clear_communicator()
 
@@ -376,6 +383,7 @@ class Executor(BaseExecutor):
             logger.info(
                 f"Executor: {self._analysis_desc.task_result.task_name} started"
             )
+            self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
 
         self.add_hook("task_started", task_started)
 
