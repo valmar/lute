@@ -318,7 +318,11 @@ class BinaryTask(Task):
             if value != "":
                 # Cannot have empty values in argument list for execvp
                 # So far this only comes for '', but do want to include, e.g. 0
-                self._args_list.append(f"{value}")
+                if isinstance(value, str) and " " in value:
+                    for val in value.split():
+                        self._args_list.append(f"{val}")
+                else:
+                    self._args_list.append(f"{value}")
         if (
             hasattr(self._task_parameters, "lute_template_cfg")
             and self._template_context

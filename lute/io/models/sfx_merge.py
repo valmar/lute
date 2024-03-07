@@ -21,7 +21,7 @@ __author__ = "Gabriel Dorlhiac"
 import os
 from typing import Union, List, Optional, Dict, Any
 
-from pydantic import Field
+from pydantic import Field, validator
 
 from .base import BaseBinaryParameters
 from ..db import read_latest_db_entry
@@ -204,10 +204,13 @@ class CompareHKLParameters(BaseBinaryParameters):
         flag_type="",
     )
     in_files: Optional[str] = Field(
-        "out.hkl1 out.hkl2", description="Path to input stream.", flag_type=""
+        "",
+        description="Path to input HKLs. Space-separated list of 2. Use output of partialator e.g.",
+        flag_type="",
     )
     symmetry: str = Field(description="Point group symmetry.", flag_type="--")
-    cell_file: Optional[str] = Field(
+    cell_file: str = Field(
+        "",
         description="Path to a file containing unit cell information (PDB or CrystFEL format).",
         flag_type="-",
         rename_param="p",
@@ -216,13 +219,15 @@ class CompareHKLParameters(BaseBinaryParameters):
         "Rsplit", description="Specify figure of merit to calculate.", flag_type="--"
     )
     nshells: int = Field(10, description="Use n resolution shells.", flag_type="--")
-    fix_unity: bool = Field(
-        False,
-        description="Fix scale factors to unity.",
-        flag_type="-",
-        rename_param="u",
-    )
+    # NEED A NEW CASE FOR THIS -> Boolean flag, no arg, one hyphen...
+    # fix_unity: bool = Field(
+    #    False,
+    #    description="Fix scale factors to unity.",
+    #    flag_type="-",
+    #    rename_param="u",
+    # )
     shell_file: str = Field(
+        "",
         description="Write the statistics in resolution shells to a file.",
         flag_type="--",
         rename_param="shell-file",
@@ -240,7 +245,7 @@ class CompareHKLParameters(BaseBinaryParameters):
         rename_param="zero-negs",
     )
     sigma_cutoff: Optional[Union[float, int, str]] = Field(
-        "-infinity",
+        # "-infinity",
         description="Discard reflections with I/sigma(I) < n. -infinity means no cutoff.",
         flag_type="--",
         rename_param="sigma-cutoff",
@@ -261,6 +266,39 @@ class CompareHKLParameters(BaseBinaryParameters):
         description="High resolution cutoff in Angstroms. Use this or --rmax NOT both.",
         flag_type="--",
     )
+
+    @validator("in_files")
+    def validate_in_files(cls, in_files: str, values: Dict[str, Any]) -> str:
+        if in_files == "":
+            partialator_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "MergePartialator", "out_file"
+            )
+            if partialator_file:
+                hkls: str = f"{partialator_file}1 {partialator_file}2"
+                return hkls
+        return in_files
+
+    @validator("cell_file")
+    def validate_cell_file(cls, cell_file: str, values: Dict[str, Any]) -> str:
+        if cell_file == "":
+            idx_cell_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "cell_file"
+            )
+            if idx_cell_file:
+                return idx_cell_file
+        return cell_file
+
+    @validator("shell_file")
+    def validate_shell_file(cls, shell_file: str, values: Dict[str, Any]) -> str:
+        if shell_file == "":
+            partialator_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "MergePartialator", "out_file"
+            )
+            if partialator_file:
+                shells_out: str = partialator_file.split(".")[0]
+                shells_out = f"{shells_out}_{values['fom']}_n{values['nshells']}.dat"
+                return shells_out
+        return shell_file
 
 
 class ManipulateHKLParameters(BaseBinaryParameters):

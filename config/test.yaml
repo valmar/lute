@@ -139,4 +139,12 @@ MergePartialator:
   #model: "unity"
   #niter: 1
   symmetry: "mmm"
+
+CompareHKL:
+  #in_files: ""
+  #fom: "Rsplit"
+  #nshells: 10
+  #shell_file: ""
+  #cell_file: ""
+  symmetry: "mmm"
 ...
