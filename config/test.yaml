@@ -123,7 +123,7 @@ TestSocket:
   num_arrays: 10 # Number of arrays to send.
 
 IndexCrystFEL:
-  #in_file: ""            # Location of a CXI file
+  #in_file: ""            # Location of a `.lst` file listing CXI files
   #out_file: ""           # Where to write the output stream file
   geometry: ""            # Location of a geometry file
   indexing: "mosflm"      # Indexing methods

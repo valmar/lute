@@ -8,6 +8,7 @@ Classes:
 __all__ = ["IndexCrystFELParameters"]
 __author__ = "Gabriel Dorlhiac"
 
+import os
 from typing import Union, List, Optional, Dict, Any
 
 from pydantic import (
@@ -117,7 +118,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="asapo-stream",
     )
     nthreads: PositiveInt = Field(
-        1,
+        int(os.environ.get('SLURM_NPROCS', len(os.sched_getaffinity(0)))) - 1,
         description="Number of threads to use. See also `max_indexer_threads`.",
         flag_type="-",
         rename_param="j",
