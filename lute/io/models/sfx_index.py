@@ -118,7 +118,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="asapo-stream",
     )
     nthreads: PositiveInt = Field(
-        int(os.environ.get('SLURM_NPROCS', len(os.sched_getaffinity(0)))) - 1,
+        int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1,
         description="Number of threads to use. See also `max_indexer_threads`.",
         flag_type="-",
         rename_param="j",
@@ -197,8 +197,8 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         flag_type="--",
         rename_param="camera-length-estimate",
     )
-    max_indexer_threads: PositiveInt = Field(
-        1,
+    max_indexer_threads: Optional[PositiveInt] = Field(
+        # 1,
         description="Some indexing algos can use multiple threads. In addition to image-based.",
         flag_type="--",
         rename_param="max-indexer-threads",
@@ -222,26 +222,26 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="no-revalidate",
     )
     # TakeTwo specific parameters
-    taketwo_member_threshold: PositiveInt = Field(
-        20,
+    taketwo_member_threshold: Optional[PositiveInt] = Field(
+        # 20,
         description="Minimum number of vectors to consider.",
         flag_type="--",
         rename_param="taketwo-member-threshold",
     )
-    taketwo_len_tolerance: PositiveFloat = Field(
-        0.001,
+    taketwo_len_tolerance: Optional[PositiveFloat] = Field(
+        # 0.001,
         description="TakeTwo length tolerance in Angstroms.",
         flag_type="--",
         rename_param="taketwo-len-tolerance",
     )
-    taketwo_angle_tolerance: PositiveFloat = Field(
-        0.6,
+    taketwo_angle_tolerance: Optional[PositiveFloat] = Field(
+        # 0.6,
         description="TakeTwo angle tolerance in degrees.",
         flag_type="--",
         rename_param="taketwo-angle-tolerance",
     )
-    taketwo_trace_tolerance: PositiveFloat = Field(
-        3,
+    taketwo_trace_tolerance: Optional[PositiveFloat] = Field(
+        # 3,
         description="Matrix trace tolerance in degrees.",
         flag_type="--",
         rename_param="taketwo-trace-tolerance",
@@ -258,20 +258,20 @@ class IndexCrystFELParameters(BaseBinaryParameters):
     # felix-tthrange-max
     # felix-tthrange-min
     # XGANDALF-specific parameters
-    xgandalf_sampling_pitch: NonNegativeInt = Field(
-        6,
+    xgandalf_sampling_pitch: Optional[NonNegativeInt] = Field(
+        # 6,
         description="Density of reciprocal space sampling.",
         flag_type="--",
         rename_param="xgandalf-sampling-pitch",
     )
-    xgandalf_grad_desc_iterations: NonNegativeInt = Field(
-        4,
+    xgandalf_grad_desc_iterations: Optional[NonNegativeInt] = Field(
+        # 4,
         description="Number of gradient descent iterations.",
         flag_type="--",
         rename_param="xgandalf-grad-desc-iterations",
     )
-    xgandalf_tolerance: PositiveFloat = Field(
-        0.02,
+    xgandalf_tolerance: Optional[PositiveFloat] = Field(
+        # 0.02,
         description="Relative tolerance of lattice vectors",
         flag_type="--",
         rename_param="xgandalf-tolerance",
@@ -281,20 +281,20 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         flag_type="--",
         rename_param="xgandalf-no-deviation-from-provided-cell",
     )
-    xgandalf_min_lattice_vector_length: PositiveFloat = Field(
-        30,
+    xgandalf_min_lattice_vector_length: Optional[PositiveFloat] = Field(
+        # 30,
         description="Minimum possible lattice length.",
         flag_type="--",
         rename_param="xgandalf-min-lattice-vector-length",
     )
-    xgandalf_max_lattice_vector_length = Field(
-        250,
+    xgandalf_max_lattice_vector_length: Optional[PositiveFloat] = Field(
+        # 250,
         description="Minimum possible lattice length.",
         flag_type="--",
         rename_param="xgandalf-max-lattice-vector-length",
     )
-    xgandalf_max_peaks: PositiveInt = Field(
-        250,
+    xgandalf_max_peaks: Optional[PositiveInt] = Field(
+        # 250,
         description="Maximum number of peaks to use for indexing.",
         flag_type="--",
         rename_param="xgandalf-max-peaks",
@@ -402,3 +402,13 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         # )
         # in_file: str = f"{values['lute_config'].work_dir}/{filename}"
         return geometry
+
+    @validator("cell_file", always=True)
+    def validate_cell_file(cls, cell_file: str, values: Dict[str, Any]) -> str:
+        if cell_file == "":
+            ...
+        # filename: str = read_latest_db_entry(
+        #    f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
+        # )
+        # in_file: str = f"{values['lute_config'].work_dir}/{filename}"
+        return cell_file

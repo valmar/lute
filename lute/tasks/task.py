@@ -282,17 +282,18 @@ class BinaryTask(Task):
                     if flag == "--" and isinstance(value, bool) and not value:
                         continue
                     constructed_flag: str = f"{flag}{param_repr}"
-                    if flag == "-" and short_flags_use_eq:
-                        constructed_flag = f"{constructed_flag}={value}"
-                        continue
-                    elif flag == "--" and long_flags_use_eq:
-                        constructed_flag = f"{constructed_flag}={value}"
-                        continue
-                    self._args_list.append(f"{constructed_flag}")
-                    # self._args_list.append(f"{flag}{param_repr}")
                     if flag == "--" and isinstance(value, bool) and value:
                         # On/off flag, e.g. something like --verbose: No Arg
+                        self._args_list.append(f"{constructed_flag}")
                         continue
+                    if (flag == "-" and short_flags_use_eq) or (
+                        flag == "--" and long_flags_use_eq
+                    ):  # Must come after above check! Otherwise you get --param=True
+                        # Flags following --param=value or -param=value
+                        constructed_flag = f"{constructed_flag}={value}"
+                        self._args_list.append(f"{constructed_flag}")
+                        continue
+                    self._args_list.append(f"{constructed_flag}")
             else:
                 warnings.warn(
                     "Model parameters should be defined using Field(...,flag_type='') in the future.",

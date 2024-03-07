@@ -19,7 +19,13 @@ SmallDataProducer: Executor = Executor("SubmitSMD")
 #####
 CrystFELIndexer: Executor = Executor("IndexCrystFEL")
 CrystFELIndexer.update_environment(
-    {"PATH": "/sdf/group/lcls/ds/tools/XDS-INTEL64_Linux_x86_64"}
+    {
+        "PATH": (
+            "/sdf/group/lcls/ds/tools/XDS-INTEL64_Linux_x86_64:"
+            "/sdf/group/lcls/ds/tools:"
+            "/sdf/group/lcls/ds/tools/crystfel/0.10.2/bin"
+        )
+    }
 )
 PartialtorMerger: Executor = Executor("MergePartialator")
 HKLComparer: Executor = Executor("CompareHKL")  # For figures of merit
