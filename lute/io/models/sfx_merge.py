@@ -1,8 +1,14 @@
 """Models for merging reflections in serial femtosecond crystallography.
 
 Classes:
-    IndexCrystFEL(BaseBinaryParameters): Perform indexing of hits/peaks using
-        CrystFEL's `indexamajig`.
+    MergePartialatorParameters(BaseBinaryParameters): Perform merging using
+        CrystFEL's `partialator`.
+
+    CompareHKLParameters(BaseBinaryParameters): Calculate figures of merit using
+        CrystFEL's `compare_hkl`.
+
+    ManipulateHKLParameters(BaseBinaryParameters): Perform transformations on
+        lists of reflections using CrystFEL's `get_hkl`.
 """
 
 __all__ = [
@@ -12,6 +18,7 @@ __all__ = [
 ]
 __author__ = "Gabriel Dorlhiac"
 
+import os
 from typing import Union, List, Optional, Dict, Any
 
 from pydantic import Field
@@ -74,7 +81,10 @@ class MergePartialatorParameters(BaseBinaryParameters):
         flag_type="--",
     )
     nthreads: int = Field(
-        1, description="Number of parallel analyses.", flag_type="-", rename_param="j"
+        int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1,
+        description="Number of parallel analyses.",
+        flag_type="-",
+        rename_param="j",
     )
     polarisation: Optional[str] = Field(
         description="Specification of incident polarisation. Refer to CrystFEL docs for more info.",

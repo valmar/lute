@@ -132,4 +132,11 @@ IndexCrystFEL:
   multi: True
   profile: True
   no_revalidate: True
+
+MergePartialator:
+  #in_file: ""
+  #out_file: ""
+  #model: "unity"
+  #niter: 1
+  symmetry: "mmm"
 ...

@@ -27,6 +27,6 @@ CrystFELIndexer.update_environment(
         )
     }
 )
-PartialtorMerger: Executor = Executor("MergePartialator")
+PartialatorMerger: Executor = Executor("MergePartialator")
 HKLComparer: Executor = Executor("CompareHKL")  # For figures of merit
 HKLManipulator: Executor = Executor("ManipulateHKL")  # For hkl->mtz, but can do more

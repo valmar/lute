@@ -1,7 +1,7 @@
 """Models for serial femtosecond crystallography indexing.
 
 Classes:
-    IndexCrystFEL(BaseBinaryParameters): Perform indexing of hits/peaks using
+    IndexCrystFELParameters(BaseBinaryParameters): Perform indexing of hits/peaks using
         CrystFEL's `indexamajig`.
 """
 
