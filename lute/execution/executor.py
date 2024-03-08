@@ -234,7 +234,7 @@ class BaseExecutor(ABC):
         script: str = (
             f"set -a\n"
             f'source "{env}" >/dev/null\n'
-            f'{sys.executable} -c "import os; print(os.environ)"\n'
+            f'{sys.executable} -c "import os; print(dict(os.environ))"\n'
         )
         logger.info(f"Sourcing file {env}")
         o, e = subprocess.Popen(
