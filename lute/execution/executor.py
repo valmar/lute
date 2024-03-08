@@ -23,7 +23,7 @@ Exceptions
 
 """
 
-__all__ = ["BaseExecutor", "Executor"]
+__all__ = ["BaseExecutor", "Executor", "MPIExecutor"]
 __author__ = "Gabriel Dorlhiac"
 
 import _io
@@ -257,14 +257,11 @@ class BaseExecutor(ABC):
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
-        executable_path: str
-        if lute_path is not None:
-            executable_path = f"{lute_path}/subprocess_task.py"
-        else:
+        if lute_path is None:
             logger.debug("Absolute path to subprocess.py not found.")
             lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
             os.environ["LUTE_PATH"] = lute_path
-            executable_path = f"{lute_path}/subprocess_task.py"
+        executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
@@ -464,12 +461,11 @@ class MPIExecutor(Executor):
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
-        executable_path: str
-        if lute_path is not None:
-            executable_path = f"{lute_path}/subprocess_task.py"
-        else:
+        if lute_path is None:
             logger.debug("Absolute path to subprocess.py not found.")
-            executable_path = "subprocess_task.py"
+            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
+            os.environ["LUTE_PATH"] = lute_path
+        executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
@@ -493,7 +489,14 @@ class MPIExecutor(Executor):
         self._finalize_task(proc)
         proc.stdout.close()
         proc.stderr.close()
-        self._store_configuration()
         proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
         for comm in self._communicators:
             comm.clear_communicator()
