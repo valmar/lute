@@ -208,7 +208,7 @@ class CompareHKLParameters(BaseBinaryParameters):
         description="Path to input HKLs. Space-separated list of 2. Use output of partialator e.g.",
         flag_type="",
     )
-    symmetry: str = Field(description="Point group symmetry.", flag_type="--")
+    symmetry: str = Field("", description="Point group symmetry.", flag_type="--")
     cell_file: str = Field(
         "",
         description="Path to a file containing unit cell information (PDB or CrystFEL format).",
@@ -282,11 +282,24 @@ class CompareHKLParameters(BaseBinaryParameters):
     def validate_cell_file(cls, cell_file: str, values: Dict[str, Any]) -> str:
         if cell_file == "":
             idx_cell_file: Optional[str] = read_latest_db_entry(
-                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "cell_file"
+                f"{values['lute_config'].work_dir}",
+                "IndexCrystFEL",
+                "cell_file",
+                valid_only=False,
             )
             if idx_cell_file:
                 return idx_cell_file
         return cell_file
+
+    @validator("symmetry")
+    def validate_symmetry(cls, symmetry: str, values: Dict[str, Any]) -> str:
+        if symmetry == "":
+            partialator_sym: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "MergePartialator", "symmetry"
+            )
+            if partialator_sym:
+                return partialator_sym
+        return symmetry
 
     @validator("shell_file")
     def validate_shell_file(cls, shell_file: str, values: Dict[str, Any]) -> str:
@@ -320,24 +333,26 @@ class ManipulateHKLParameters(BaseBinaryParameters):
         description="CrystFEL's reflection manipulation binary.",
         flag_type="",
     )
-    in_file: Optional[str] = Field(
-        "reflections.hkl",
-        description="Path to input stream.",
+    in_file: str = Field(
+        "",
+        description="Path to input HKL file.",
         flag_type="-",
         rename_param="i",
     )
     out_file: str = Field(
-        "output.hkl",
+        "",
         description="Path to output file.",
         flag_type="-",
         rename_param="o",
     )
-    cell_file: Optional[str] = Field(
+    cell_file: str = Field(
+        "",
         description="Path to a file containing unit cell information (PDB or CrystFEL format).",
         flag_type="-",
         rename_param="p",
     )
-    output_format: Optional[str] = Field(
+    output_format: str = Field(
+        "mtz",
         description="Output format. One of mtz, mtz-bij, or xds. Otherwise CrystFEL format.",
         flag_type="--",
         rename_param="output-format",
@@ -385,7 +400,7 @@ class ManipulateHKLParameters(BaseBinaryParameters):
         flag_type="--",
     )
     # Resolution cutoffs
-    cutoff_angstroms: Union[str, int, float] = Field(
+    cutoff_angstroms: Optional[Union[str, int, float]] = Field(
         description="Either n, or n1,n2,n3. For n, reflections < n are removed. For n1,n2,n3 anisotropic trunction performed at separate resolution limits for a*, b*, c*.",
         flag_type="--",
         rename_param="cutoff-angstroms",
@@ -405,3 +420,38 @@ class ManipulateHKLParameters(BaseBinaryParameters):
         description="Point group symmetry to use to override. Almost always OMIT this option.",
         flag_type="--",
     )
+
+    @validator("in_file")
+    def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
+        if in_file == "":
+            partialator_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "MergePartialator", "out_file"
+            )
+            if partialator_file:
+                return partialator_file
+        return in_file
+
+    @validator("out_file")
+    def validate_out_file(cls, out_file: str, values: Dict[str, Any]) -> str:
+        if out_file == "":
+            partialator_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "MergePartialator", "out_file"
+            )
+            if partialator_file:
+                mtz_out: str = partialator_file.split(".")[0]
+                mtz_out = f"{mtz_out}.mtz"
+                return mtz_out
+        return out_file
+
+    @validator("cell_file")
+    def validate_cell_file(cls, cell_file: str, values: Dict[str, Any]) -> str:
+        if cell_file == "":
+            idx_cell_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}",
+                "IndexCrystFEL",
+                "cell_file",
+                valid_only=False,
+            )
+            if idx_cell_file:
+                return idx_cell_file
+        return cell_file
