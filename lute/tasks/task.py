@@ -259,7 +259,8 @@ class BinaryTask(Task):
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
             if (
                 param == "executable"
-                or value is None
+                or value is None  # Cannot have empty values in argument list for execvp
+                or value == ""  # But do want to include, e.g. 0
                 or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
                 or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
             ):
@@ -315,14 +316,11 @@ class BinaryTask(Task):
                     self._args_list.append(f"--{param_repr}")
                     if isinstance(value, bool) and value:
                         continue
-            if value != "":
-                # Cannot have empty values in argument list for execvp
-                # So far this only comes for '', but do want to include, e.g. 0
-                if isinstance(value, str) and " " in value:
-                    for val in value.split():
-                        self._args_list.append(f"{val}")
-                else:
-                    self._args_list.append(f"{value}")
+            if isinstance(value, str) and " " in value:
+                for val in value.split():
+                    self._args_list.append(f"{val}")
+            else:
+                self._args_list.append(f"{value}")
         if (
             hasattr(self._task_parameters, "lute_template_cfg")
             and self._template_context
