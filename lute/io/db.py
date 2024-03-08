@@ -257,7 +257,9 @@ def record_analysis_db(cfg: DescribedAnalysis) -> None:
         _add_task_entry(con, task_name, full_task_entry)
 
 
-def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Optional[Any]:
+def read_latest_db_entry(
+    db_dir: str, task_name: str, param: str, valid_only: bool = True
+) -> Optional[Any]:
     """Read most recent value entered into the database for a Task parameter.
 
     (Will be updated for schema compliance as well as Task name.)
@@ -269,6 +271,10 @@ def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Optional[An
 
         param (str): The parameter name for the Task that we want to retrieve.
 
+        valid_only (bool): Whether to consider only valid results or not. E.g.
+            An input file may be useful even if the Task result is invalid
+            (Failed). Default = True.
+
     Returns:
         val (Any): The most recently entered value for `param` of `task_name`
             that can be found in the database. Returns None if nothing found.
@@ -279,7 +285,10 @@ def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Optional[An
     con: sqlite3.Connection = sqlite3.Connection(f"{db_dir}/lute.db")
     with con:
         try:
-            entry: Any = _select_from_db(con, task_name, param, {"valid_flag": "1"})
+            cond: Dict[str, str] = {}
+            if valid_only:
+                cond = {"valid_flag": "1"}
+            entry: Any = _select_from_db(con, task_name, param, cond)
         except sqlite3.OperationalError as err:
             logger.debug(f"Cannot retrieve value {param} due to: {err}")
             entry = None
