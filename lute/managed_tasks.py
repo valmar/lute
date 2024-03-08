@@ -30,3 +30,5 @@ CrystFELIndexer.update_environment(
 PartialatorMerger: Executor = Executor("MergePartialator")
 HKLComparer: Executor = Executor("CompareHKL")  # For figures of merit
 HKLManipulator: Executor = Executor("ManipulateHKL")  # For hkl->mtz, but can do more
+DimpleSolver: Executor = Executor("DimpleSolve")
+DimpleSolver.source_env("/sdf/group/lcls/ds/tools/ccp4-8.0/bin/ccp4.setup-sh")

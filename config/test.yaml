@@ -147,4 +147,11 @@ CompareHKL:
   #shell_file: ""
   #cell_file: ""
   symmetry: "mmm"
+
+#ManipulateHKL:
+  #output_format: "mtz"
+  #out_file: "..."
+
+DimpleSolve:
+  pdb: "/path/to/pdb"
 ...

@@ -217,6 +217,32 @@ class BaseExecutor(ABC):
                 )
         self._analysis_desc.task_env.update(env)
 
+    def source_env(self, env: str) -> None:
+        """Source a script.
+
+        Unlike `update_environment` this method sources a new file.
+
+        Args:
+            env (str): Path to the script to source.
+        """
+        import sys
+
+        if not os.path.exists(env):
+            logger.info(f"Cannot source environment from {env}!")
+            return
+
+        script: str = (
+            f"set -a\n"
+            f'source "{env}" >/dev/null\n'
+            f'{sys.executable} -c "import os; print(os.environ)"\n'
+        )
+        logger.info(f"Sourcing file {env}")
+        o, e = subprocess.Popen(
+            ["bash", "-c", script], stdout=subprocess.PIPE
+        ).communicate()
+        new_environment: Dict[str, str] = eval(o)
+        self._analysis_desc.task_env = new_environment
+
     def _pre_task(self) -> None:
         """Any actions to be performed before task submission.
 
