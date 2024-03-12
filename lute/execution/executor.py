@@ -215,6 +215,7 @@ class BaseExecutor(ABC):
                         " Options are: prepend, append, overwrite."
                     )
                 )
+        os.environ.update(env)
         self._analysis_desc.task_env.update(env)
 
     def source_env(self, env: str) -> None:
@@ -286,7 +287,7 @@ class BaseExecutor(ABC):
         if lute_path is None:
             logger.debug("Absolute path to subprocess.py not found.")
             lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
-            os.environ["LUTE_PATH"] = lute_path
+            self.update_environment({"LUTE_PATH": lute_path})
         executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
