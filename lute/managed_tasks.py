@@ -32,4 +32,6 @@ HKLComparer: Executor = Executor("CompareHKL")  # For figures of merit
 HKLManipulator: Executor = Executor("ManipulateHKL")  # For hkl->mtz, but can do more
 DimpleSolver: Executor = Executor("DimpleSolve")
 DimpleSolver.source_env("/sdf/group/lcls/ds/tools/ccp4-8.0/bin/ccp4.setup-sh")
-PeakFinderPyAlgos = MPIExecutor("FindPeaksPyAlgos")
+PeakFinderPyAlgos: MPIExecutor = MPIExecutor("FindPeaksPyAlgos")
+SHELXCRunner: Executor = Executor("RunSHELXC")
+SHELXCRunner.source_env("/sdf/group/lcls/ds/tools/ccp4-8.0/bin/ccp4.setup-sh")
