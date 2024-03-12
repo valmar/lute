@@ -11,7 +11,7 @@ __author__ = "Gabriel Dorlhiac"
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Union, Type, TextIO
+from typing import Any, List, Dict, Union, Type, TextIO, Optional
 import os
 import warnings
 import signal
@@ -216,9 +216,17 @@ class BinaryTask(Task):
         out_file: str = self._task_parameters.lute_template_cfg.output_dir
         template_file: str = self._task_parameters.lute_template_cfg.template_dir
 
-        environment: Environment = Environment(
-            loader=FileSystemLoader("../../config/templates")
-        )
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        template_dir: str
+        if lute_path is None:
+            warnings.warn(
+                "LUTE_PATH is None in Task process! Using relative path for templates!",
+                category=UserWarning,
+            )
+            template_dir: str = "../../config/templates"
+        else:
+            template_dir = f"{lute_path}/config/templates"
+        environment: Environment = Environment(loader=FileSystemLoader(template_dir))
         template: Template = environment.get_template(template_file)
 
         with open(out_file, "w", encoding="utf-8") as cfg_out:
