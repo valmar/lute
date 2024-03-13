@@ -32,7 +32,7 @@ class SubmitSMDParameters(BaseBinaryParameters):
 
     executable: str = Field("mpirun", description="MPI executable.", flag_type="")
     np: PositiveInt = Field(
-        int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1,
+        max(int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1),
         description="Number of processes",
         flag_type="-",
     )

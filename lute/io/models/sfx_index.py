@@ -118,7 +118,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         rename_param="asapo-stream",
     )
     nthreads: PositiveInt = Field(
-        int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1,
+        max(int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1),
         description="Number of threads to use. See also `max_indexer_threads`.",
         flag_type="-",
         rename_param="j",
