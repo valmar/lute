@@ -5,5 +5,5 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      uses: actions/checkout@v3
-      uses: psf/black@stable
+      - uses: actions/checkout@v3
+      - uses: psf/black@stable
