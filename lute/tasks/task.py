@@ -251,9 +251,9 @@ class BinaryTask(Task):
         identified.
         """
         super()._pre_run()
-        full_schema: Dict[
-            str, Union[str, Dict[str, Any]]
-        ] = self._task_parameters.schema()
+        full_schema: Dict[str, Union[str, Dict[str, Any]]] = (
+            self._task_parameters.schema()
+        )
         short_flags_use_eq: bool
         long_flags_use_eq: bool
         if hasattr(self._task_parameters.Config, "short_flags_use_eq"):

@@ -70,7 +70,12 @@ def _cfg_to_exec_entry_cols(
 
 def _params_to_entry_cols(
     params: TaskParameters,
-) -> Tuple[Dict[str, Any], Dict[str, str], Dict[str, Any], Dict[str, str],]:
+) -> Tuple[
+    Dict[str, Any],
+    Dict[str, str],
+    Dict[str, Any],
+    Dict[str, str],
+]:
     """Adapts a TaskParameters object to be entered into a table.
 
     Extracts the appropriate names and types from a TaskParameters object.
