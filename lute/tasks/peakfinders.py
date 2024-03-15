@@ -10,9 +10,9 @@ from numpy.typing import NDArray
 from psalgos.pypsalgos import PyAlgos
 from psana import Detector, EventId, MPIDataSource
 
-from ..execution.ipc import Message
-from ..io.models.base import *
-from .task import *
+from lute.tasks.task import *
+from lute.io.models.base import *
+from lute.execution.ipc import Message
 
 
 class CxiWriter:
@@ -699,8 +699,12 @@ class FindPeaksPyAlgos(Task):
 
                 if self._task_parameters.compression is not None:
 
-                    libpressio_config_with_peaks = add_peaks_to_libpressio_configuration(libpressio_config, peaks)
-                    compressor = PressioCompressor.from_config(libpressio_config_with_peaks)
+                    libpressio_config_with_peaks = (
+                        add_peaks_to_libpressio_configuration(libpressio_config, peaks)
+                    )
+                    compressor = PressioCompressor.from_config(
+                        libpressio_config_with_peaks
+                    )
                     compressed_img = compressor.encode(img)
                     decompressed_img = numpy.zeros_like(img)
                     decompressed = compressor.decode(compressed_img, decompressed_img)
