@@ -1,11 +1,27 @@
-from typing import Literal, Union
+from pathlib import Path
+from typing import Any, Dict, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from .base import BaseBinaryParameters, TaskParameters
 
 
 class FindPeaksPyAlgosParameters(TaskParameters):
+
+    class SZCompressorParameters(BaseModel):
+        compressor: Literal["qoz", "sz3"] = Field(
+            "qoz", description='Compression algorithm ("qoz" or "sz3")'
+        )
+        abs_error: float = Field(10.0, description="Absolute error bound")
+        bin_size: int = Field(2, description="Bin size")
+        roi_window_size: int = Field(
+            9,
+            description="Default window size",
+        )
+
+    outdir: str = Field(
+        description="Output directory for cxi files",
+    )
     n_events: int = Field(
         0,
         description="Number of events to process (0 to process all events)",
@@ -85,3 +101,23 @@ class FindPeaksPyAlgosParameters(TaskParameters):
         7.0,
         description="Intensity threshold to include pixel in connected group",
     )
+    compression: Optional[SZCompressorParameters] = Field(
+        None,
+        description="Options for the SZ Compression Algorithm",
+    )
+    out_file: str = Field(
+        "",
+        description="Path to output file.",
+        flag_type="-",
+        rename_param="o",
+    )
+
+    @validator("out_file")
+    def validate_out_file(cls, out_file: str, values: Dict[str, Any]) -> str:
+        if out_file == "":
+            fname: Path = (
+                Path(values["outdir"])
+                / f"{values['lute_config'].experiment}_{values['lute_config'].run}_"
+                f"{values['tag']}.list"
+            )
+        return out_file

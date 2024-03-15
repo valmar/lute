@@ -1,9 +1,10 @@
 import sys
 from pathlib import Path
-from typing import Any, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Tuple
 
 import h5py
 import numpy
+from libpressio import PressioCompressor
 from mpi4py.MPI import COMM_WORLD, SUM
 from numpy.typing import NDArray
 from psalgos.pypsalgos import PyAlgos
@@ -363,7 +364,7 @@ def write_master_file(
 
     Parameters:
 
-        mpi_size (int): Number of ranks in the MPI pool
+        mpi_size (int): Number of ranks in the MPI pool.
 
         outdir (str): Output directory for cxi file.
 
@@ -443,6 +444,115 @@ def write_master_file(
         vdf["entry_1/data_1/powderMisses"] = powder_misses
 
 
+def generate_libpressio_configuration(
+    compressor: Literal["sz3", "qoz"],
+    roi_window_size: int,
+    bin_size: int,
+    abs_error: float,
+    libpressio_mask,
+) -> Dict[str, Any]:
+    """
+    Create the configuration JSON for the libpressio library
+
+    Parameters:
+
+        compressor (Literal["sz3", "qoz"]): Compression algorithm to use
+            ("qoz" or "sz3").
+
+        abs_error (float): Bound value for the absolute error.
+
+        bin_size (int): Bining Size.
+
+        roi_window_size (int): Default size of the ROI window.
+
+        libpressio_mask (NDArray): mask to be applied to the data.
+
+    Returns:
+
+        lp_json (Dict[str, Any]): Dictionary storing the JSON configuration structure
+        for the libpressio library
+    """
+
+    if compressor == "qoz":
+        pressio_opts: Dict[str, Any] = {
+            "pressio:abs": abs_error,
+            "qoz": {"qoz:stride": 8},
+        }
+    elif compressor == "sz3":
+        pressio_opts = {"pressio:abs": abs_error}
+
+    lp_json = {
+        "compressor_id": "pressio",
+        "early_config": {
+            "pressio": {
+                "pressio:compressor": "roibin",
+                "roibin": {
+                    "roibin:metric": "composite",
+                    "roibin:background": "mask_binning",
+                    "roibin:roi": "fpzip",
+                    "background": {
+                        "binning:compressor": "pressio",
+                        "mask_binning:compressor": "pressio",
+                        "pressio": {"pressio:compressor": compressor},
+                    },
+                    "composite": {
+                        "composite:plugins": [
+                            "size",
+                            "time",
+                            "input_stats",
+                            "error_stat",
+                        ]
+                    },
+                },
+            }
+        },
+        "compressor_config": {
+            "pressio": {
+                "roibin": {
+                    "roibin:roi_size": [roi_window_size, roi_window_size, 0],
+                    "roibin:centers": None,  # "roibin:roi_strategy": "coordinates",
+                    "roibin:nthreads": 4,
+                    "roi": {"fpzip:prec": 0},
+                    "background": {
+                        "mask_binning:mask": None,
+                        "mask_binning:shape": [bin_size, bin_size, 1],
+                        "mask_binning:nthreads": 4,
+                        "pressio": pressio_opts,
+                    },
+                }
+            }
+        },
+        "name": "pressio",
+    }
+
+    lp_json["compressor_config"]["pressio"]["roibin"]["background"][
+        "mask_binning:mask"
+    ] = (1 - libpressio_mask)
+
+    return lp_json
+
+
+def add_peaks_to_libpressio_configuration(lp_json, peaks) -> Dict[str, Any]:
+    """
+    Add peak infromation to libpressio configuration
+
+    Parameters:
+
+        lp_json: Dictionary storing the configuration JSON structure for the libpressio
+            library.
+
+        peaks (Any): Peak information as returned by psana.
+
+    Returns:
+
+        lp_json: Updated configuration JSON structure for the libpressio library.
+    """
+    lp_json["compressor_config"]["pressio"]["roibin"]["roibin:centers"] = (
+        numpy.ascontiguousarray(numpy.uint64(peaks[:, [2, 1, 0]]))
+    )
+    return lp_json
+
+
 class FindPeaksPyAlgos(Task):
     """
     Task that performs peak finding using the PyAlgos peak finding algorithms and
@@ -462,6 +572,7 @@ class FindPeaksPyAlgos(Task):
 
         det: Any = Detector(self._task_parameters.det_name)
         det.do_reshape_2d_to_3d(flag=True)
+
         evr: Any = Detector(self._task_parameters.event_receiver)
 
         i_x: Any = det.indexes_x(self._task_parameters.lute_config.run).astype(
@@ -535,7 +646,7 @@ class FindPeaksPyAlgos(Task):
                         numpy.uint16
                     )
 
-                self._file_writer: CxiWriter = CxiWriter(
+                file_writer: CxiWriter = CxiWriter(
                     outdir=self._task_parameters.outdir,
                     rank=ds.rank,
                     exp=self._task_parameters.lute_config.experiment,
@@ -559,6 +670,16 @@ class FindPeaksPyAlgos(Task):
                     son_min=self._task_parameters.son_min,
                 )
 
+                if self._task_parameters.compression is not None:
+
+                    libpressio_config = generate_libpressio_configuration(
+                        compressor=self._task_parameters.compression.compressor,
+                        roi_window_size=self._task_parameters.compression.roi_window_size,
+                        bin_size=self._task_parameters.compression.bin_size,
+                        abs_error=self._task_parameters.compression.abs_error,
+                        libpressio_mask=mask,
+                    )
+
                 powder_hits: NDArray[numpy.float_] = numpy.zeros(det_shape)
                 powder_misses: NDArray[numpy.float_] = numpy.zeros(det_shape)
 
@@ -576,6 +697,15 @@ class FindPeaksPyAlgos(Task):
                 peaks.shape[0] <= self._task_parameters.max_peaks
             ):
 
+                if self._task_parameters.compression is not None:
+
+                    libpressio_config_with_peaks = add_peaks_to_libpressio_configuration(libpressio_config, peaks)
+                    compressor = PressioCompressor.from_config(libpressio_config_with_peaks)
+                    compressed_img = compressor.encode(img)
+                    decompressed_img = numpy.zeros_like(img)
+                    decompressed = compressor.decode(compressed_img, decompressed_img)
+                    img = decompressed_img
+
                 try:
                     photon_energy: float = (
                         Detector("EBeam").get(evt).ebeamPhotonEnergy()
@@ -587,7 +717,7 @@ class FindPeaksPyAlgos(Task):
                         / 1.0e9
                     )
 
-                self._file_writer.write_event(
+                file_writer.write_event(
                     img=img,
                     peaks=peaks,
                     timestamp_seconds=timestamp_seconds,
@@ -610,14 +740,14 @@ class FindPeaksPyAlgos(Task):
             )
             self._report_to_executor(msg)
 
-        self._file_writer.write_non_event_data(
+        file_writer.write_non_event_data(
             powder_hits=powder_hits,
             powder_misses=powder_misses,
             mask=mask,
             clen=clen,
         )
 
-        self._file_writer.optimize_and_close_file(
+        file_writer.optimize_and_close_file(
             num_hits=num_hits, max_peaks=self._task_parameters.max_peaks
         )
 
