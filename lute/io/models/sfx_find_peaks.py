@@ -120,4 +120,4 @@ class FindPeaksPyAlgosParameters(TaskParameters):
                 / f"{values['lute_config'].experiment}_{values['lute_config'].run}_"
                 f"{values['tag']}.list"
             )
-        return out_file
+        return fname
