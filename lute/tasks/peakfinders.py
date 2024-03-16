@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, TextIO, Tuple
 
 import h5py
 import numpy
@@ -10,9 +10,9 @@ from numpy.typing import NDArray
 from psalgos.pypsalgos import PyAlgos
 from psana import Detector, EventId, MPIDataSource
 
-from lute.tasks.task import *
-from lute.io.models.base import *
 from lute.execution.ipc import Message
+from lute.io.models.base import *
+from lute.tasks.task import *
 
 
 class CxiWriter:
@@ -358,7 +358,7 @@ def write_master_file(
     tag: str,
     n_hits_per_rank: List[int],
     n_hits_total: int,
-):
+) -> Path:
     """
     Generate a virtual dataset to map all individual files for this run.
 
@@ -378,6 +378,10 @@ def write_master_file(
             node processing data.
 
         n_hits_total (int): Total number of hits found across all nodes.
+
+    Returns:
+
+        The path to the the written master file
     """
     # Retrieve paths to the files containing data
     fnames: List[Path] = []
@@ -442,6 +446,8 @@ def write_master_file(
 
         vdf["entry_1/data_1/powderHits"] = powder_hits
         vdf["entry_1/data_1/powderMisses"] = powder_misses
+
+    return vfname
 
 
 def generate_libpressio_configuration(
@@ -762,7 +768,7 @@ class FindPeaksPyAlgos(Task):
         num_events_per_rank: List[int] = COMM_WORLD.gather(num_events, root=0)
 
         if ds.rank == 0:
-            write_master_file(
+            master_fname: Path = write_master_file(
                 mpi_size=ds.size,
                 outdir=self._task_parameters.outdir,
                 exp=self._task_parameters.lute_config.experiment,
@@ -773,15 +779,23 @@ class FindPeaksPyAlgos(Task):
             )
 
             # Write final summary file
+            f: TextIO
             with open(
                 Path(self._task_parameters.outdir) / f"peakfinding{tag}.summary", "w"
             ) as f:
-                f.write(f"Number of events processed: {num_events_per_rank[-1]}\n")
-                f.write(f"Number of hits found: {num_hits_total}\n")
-                f.write(
-                    f"Fractional hit rate: {(num_hits_total/num_events_per_rank[-1]):.2f}\n"
+                print(f"Number of events processed: {num_events_per_rank[-1]}", file=f)
+                print(f"Number of hits found: {num_hits_total}", file=f)
+                print(
+                    "Fractional hit rate: "
+                    f"{(num_hits_total/num_events_per_rank[-1]):.2f}",
+                    file=f,
                 )
-                f.write(f"No. hits per rank: {num_hits_per_rank}")
+                print(f"No. hits per rank: {num_hits_per_rank}", file=f)
+
+            with open(Path(self._task_parameters.out_file), "w") as f:
+                print(f"{master_fname}", file=f)
+
+            # Write out_file
 
     def _post_run(self) -> None:
         super()._post_run()
