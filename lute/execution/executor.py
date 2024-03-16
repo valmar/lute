@@ -211,7 +211,7 @@ class BaseExecutor(ABC):
         os.environ.update(env)
         self._analysis_desc.task_env.update(env)
 
-    def source_env(self, env: str) -> None:
+    def shell_source(self, env: str) -> None:
         """Source a script.
 
         Unlike `update_environment` this method sources a new file.
