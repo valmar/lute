@@ -59,9 +59,9 @@ class RequestOnlyOperator(BaseOperator):
         """
         # logger.info(f"Attempting to run at {self.get_location(context)}...")
         logger.info(f"Attempting to run at S3DF.")
-        dagrun_config: Dict[
-            str, Union[str, Dict[str, Union[str, int, List[str]]]]
-        ] = context.get("dag_run").conf
+        dagrun_config: Dict[str, Union[str, Dict[str, Union[str, int, List[str]]]]] = (
+            context.get("dag_run").conf
+        )
         jid_job_definition: Dict[str, str] = {
             "_id": str(uuid.uuid4()),
             "name": self.task_id,
@@ -147,9 +147,9 @@ class JIDSlurmOperator(BaseOperator):
                 dictionary.
         """
 
-        dagrun_config: Dict[
-            str, Union[str, Dict[str, Union[str, int, List[str]]]]
-        ] = context.get("dag_run").conf
+        dagrun_config: Dict[str, Union[str, Dict[str, Union[str, int, List[str]]]]] = (
+            context.get("dag_run").conf
+        )
 
         self.lute_location = dagrun_config.get(
             "lute_location", "/sdf/group/lcls/ds/tools/lute/latest"
@@ -274,9 +274,9 @@ class JIDSlurmOperator(BaseOperator):
         """
         # if not self.get_location(context) in self.locations:
         #     raise AirflowException(f"JID location {self.get_location(context)} is not configured")
-        dagrun_config: Dict[
-            str, Union[str, Dict[str, Union[str, int, List[str]]]]
-        ] = context.get("dag_run").conf
+        dagrun_config: Dict[str, Union[str, Dict[str, Union[str, int, List[str]]]]] = (
+            context.get("dag_run").conf
+        )
         experiment: str = dagrun_config.get("experiment")
         auth: Any = dagrun_config.get("Authorization")
 
@@ -320,7 +320,7 @@ class JIDSlurmOperator(BaseOperator):
         while jobs[0].get("status") in ("RUNNING", "SUBMITTED"):
             jobs = self.rpc(
                 endpoint="job_statuses",
-                control_doc=jobs, # job_statuses requires a list
+                control_doc=jobs,  # job_statuses requires a list
                 context=context,
                 check_for_error=[" error: ", "Traceback"],
             )

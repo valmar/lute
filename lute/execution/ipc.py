@@ -118,8 +118,7 @@ class Communicator(ABC):
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self) -> None:
-        ...
+    def __exit__(self) -> None: ...
 
     def stage_communicator(self):
         """Alternative method for staging outside of context manager."""

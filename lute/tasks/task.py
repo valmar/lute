@@ -242,9 +242,9 @@ class BinaryTask(Task):
         identified.
         """
         super()._pre_run()
-        full_schema: Dict[
-            str, Union[str, Dict[str, Any]]
-        ] = self._task_parameters.schema()
+        full_schema: Dict[str, Union[str, Dict[str, Any]]] = (
+            self._task_parameters.schema()
+        )
         for param, value in self._task_parameters.dict().items():
             # Clunky test with __dict__[param] because compound model-types are
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader

@@ -16,6 +16,7 @@ Classes:
     TemplateConfig(BaseModel): Class for holding information on where templates
         are stored in order to properly handle ThirdPartyParameter objects.
 """
+
 __all__ = [
     "TaskParameters",
     "AnalysisHeader",

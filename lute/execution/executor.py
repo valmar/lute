@@ -89,26 +89,19 @@ class BaseExecutor(ABC):
         signal.
         """
 
-        def no_pickle_mode(self: Self, msg: Message):
-            ...
+        def no_pickle_mode(self: Self, msg: Message): ...
 
-        def task_started(self: Self, msg: Message):
-            ...
+        def task_started(self: Self, msg: Message): ...
 
-        def task_failed(self: Self, msg: Message):
-            ...
+        def task_failed(self: Self, msg: Message): ...
 
-        def task_stopped(self: Self, msg: Message):
-            ...
+        def task_stopped(self: Self, msg: Message): ...
 
-        def task_done(self: Self, msg: Message):
-            ...
+        def task_done(self: Self, msg: Message): ...
 
-        def task_cancelled(self: Self, msg: Message):
-            ...
+        def task_cancelled(self: Self, msg: Message): ...
 
-        def task_result(self: Self, msg: Message):
-            ...
+        def task_result(self: Self, msg: Message): ...
 
     def __init__(
         self,
@@ -199,13 +192,13 @@ class BaseExecutor(ABC):
         if "PATH" in env:
             sep: str = os.pathsep
             if update_path == "prepend":
-                env[
-                    "PATH"
-                ] = f"{env['PATH']}{sep}{self._analysis_desc.task_env['PATH']}"
+                env["PATH"] = (
+                    f"{env['PATH']}{sep}{self._analysis_desc.task_env['PATH']}"
+                )
             elif update_path == "append":
-                env[
-                    "PATH"
-                ] = f"{self._analysis_desc.task_env['PATH']}{sep}{env['PATH']}"
+                env["PATH"] = (
+                    f"{self._analysis_desc.task_env['PATH']}{sep}{env['PATH']}"
+                )
             elif update_path == "overwrite":
                 pass
             else:
@@ -387,23 +380,19 @@ class Executor(BaseExecutor):
 
         self.add_hook("task_started", task_started)
 
-        def task_failed(self: Executor, msg: Message):
-            ...
+        def task_failed(self: Executor, msg: Message): ...
 
         self.add_hook("task_failed", task_failed)
 
-        def task_stopped(self: Executor, msg: Message):
-            ...
+        def task_stopped(self: Executor, msg: Message): ...
 
         self.add_hook("task_stopped", task_stopped)
 
-        def task_done(self: Executor, msg: Message):
-            ...
+        def task_done(self: Executor, msg: Message): ...
 
         self.add_hook("task_done", task_done)
 
-        def task_cancelled(self: Executor, msg: Message):
-            ...
+        def task_cancelled(self: Executor, msg: Message): ...
 
         self.add_hook("task_cancelled", task_cancelled)
 

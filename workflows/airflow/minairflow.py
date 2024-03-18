@@ -2,6 +2,7 @@
 
 Minimal example to test requests from Airflow to the JID.
 """
+
 from datetime import datetime
 import os
 from airflow import DAG
