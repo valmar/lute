@@ -387,28 +387,9 @@ class IndexCrystFELParameters(BaseBinaryParameters):
     @validator("in_file", always=True)
     def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
         if in_file == "":
-            filename: str = read_latest_db_entry(
-                f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
+            filename: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "out_file"
             )
-            in_file: str = f"{values['lute_config'].work_dir}/{filename}"
+            if filename is not None:
+                return filename
         return in_file
-
-    @validator("geometry", always=True)
-    def validate_geometry(cls, geometry: str, values: Dict[str, Any]) -> str:
-        if geometry == "":
-            ...
-        # filename: str = read_latest_db_entry(
-        #    f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
-        # )
-        # in_file: str = f"{values['lute_config'].work_dir}/{filename}"
-        return geometry
-
-    @validator("cell_file", always=True)
-    def validate_cell_file(cls, cell_file: str, values: Dict[str, Any]) -> str:
-        if cell_file == "":
-            ...
-        # filename: str = read_latest_db_entry(
-        #    f"{values['lute_config'].work_dir}", "FindPeaksPyAlgos", "outfile"
-        # )
-        # in_file: str = f"{values['lute_config'].work_dir}/{filename}"
-        return cell_file
