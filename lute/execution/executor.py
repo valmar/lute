@@ -519,4 +519,3 @@ class MPIExecutor(Executor):
         self._store_configuration()
         for comm in self._communicators:
             comm.clear_communicator()
-
