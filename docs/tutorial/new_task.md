@@ -15,7 +15,7 @@ There are two required steps for third-party `Task` integration, and one additio
 
 Each of these stages will be discussed in detail below. The vast majority of the work is completed in step 1.
 
-### Specifying a `TaskParameters` Model for your `Task`.
+### Specifying a `TaskParameters` Model for your `Task`
 
 A brief overview of parameters objects will be provided below. The following information goes into detail only about specifics related to LUTE configuration. An in depth description of pydantic is beyond the scope of this tutorial; please refer to the [official documentation](https://docs.pydantic.dev/1.10/) for more information. Please note that due to environment constraints pydantic is currently pinned to version 1.10! Make sure to read the appropriate documentation for this version as many things are different compared to the newer releases. At the end this document there will be an example highlighting some supported behaviour as well as a FAQ to address some common integration considerations.
 
@@ -84,7 +84,7 @@ As an example, we can again consider defining a model for a `RunTask` `Task`. Co
 A model specification for this `Task` may look like:
 ```py
 class RunTaskParameters(BaseBinaryParameters):
-    """Parameters for the runtask binary."
+    """Parameters for the runtask binary."""
 
     class Config(BaseBinaryParameters.Config):
         long_flags_use_eq: bool = True  # For the --method parameter
@@ -228,8 +228,71 @@ class RunTask2Parameters(BaseBinaryParameters):
 
 There are more examples of this pattern spread throughout the various `Task` models.
 
+### Specifying an `Executor`: Creating a runnable, "managed `Task`"
+
+**Overview**
+
+After a pydantic model has been created, the next required step is to define a **managed `Task`**. In the context of this library, a **managed `Task`** refers to the combination of an `Executor` and a `Task` to run. The `Executor` manages the process of `Task` submission and the execution environment, as well as performing an logging, eLog communication, etc. There are currently two types of `Executor` to choose from. For most cases you will use the first option for third-party `Task`s.
+
+1. `Executor`: This is the standard `Executor` and sufficient for most third-party uses cases.
+2. `MPIExecutor`: This performs all the same types of operations as the option above; however, it will submit your `Task` using MPI.
+  - The `MPIExecutor` will submit the `Task` using the number of available cores - 1. The number of cores is determined from the physical core/thread count on your local machine, or the number of cores allocated by SLURM when submitting on the batch nodes.
+
+As mentioned, for most cases you can setup a third-party `Task` to use the first type of `Executor`. If, however, your third-party `Task` uses MPI, you can use either. When using the standard `Executor` for a `Task` requiring MPI, the `executable` in the pydantic model must be set to `mpirun`. For example, a third-party `Task` model, that uses MPI but can be run with the `Executor` may look like the following. We assume this `Task` runs a Python script using MPI.
+
+```py
+class RunMPITaskParameters(BaseBinaryParameters):
+    class Config(BaseBinaryParameters.Config):
+        ...
+
+    executable: str = Field("mpirun", description="MPI executable")
+    np: PositiveInt = Field(
+        max(int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1),
+        description="Number of processes",
+        flag_type="-",
+    )
+    pos_arg: str = Field("python", description="Python...", flag_type="")
+    script: str = Field("", description="Python script to run with MPI", flag_type="")
+```
+
+**Selecting the `Executor`**
+
+After deciding on which `Executor` to use, a single line must be added to the `lute/managed_tasks.py` module:
+
+```py
+# Initialization: Executor("TaskName")
+TaskRunner: Executor = Executor("SubmitTask")
+# TaskRunner: MPIExecutor = MPIExecutor("SubmitTask") ## If using the MPIExecutor
+```
+
+In an attempt to make it easier to discern whether discussing a `Task` or **managed `Task`**, the standard naming convention is that the `Task` (class name) will have a verb in the name, e.g. `RunTask`, `SubmitTask`. The corresponding **managed `Task`** will use a related noun, e.g. `TaskRunner`, `TaskSubmitter`, etc.
+
+As a reminder, the `Task` name is the first part of the class name of the pydantic model, without the `Parameters` suffix. This name **must** match. E.g. if your pydantic model's class name is `RunTaskParameters`, the `Task` name is `RunTask`, and this is the string passed to the `Executor` initializer.
+
+**Modifying the environment**
+
+If your third-party `Task` can run in the standard `psana` environment with no further configuration files, the setup process is now complete and your `Task` can be run within the LUTE framework. If on the other hand your `Task` requires some changes to the environment, this is managed through the `Executor`. There are a couple principle methods that the `Executor` has to change the environment.
+
+1. `Executor.update_environment`: if you only need to add a few environment variables, or update the `PATH` this is the method to use. The method takes a `Dict[str, str]` as input. Any variables can be passed/defined using this method. By default, any variables in the dictionary will overwrite those variable definitions in the current environment if they are already present, **except** for the variable `PATH`. By default `PATH` entries in the dictionary are prepended to the current `PATH` available in the environment the `Executor` runs in (the standard `psana` environment). This behaviour can be changed to either append, or overwrite the `PATH` entirely by an optional second argument to the method.
+2. `Executor.shell_source`: This method will source a shell script which can perform numerous modifications of the environment (PATH changes, new environment variables, conda environments, etc.). The method takes a `str` which is the path to a shell script to source.
+
+As an example, we will update the `PATH` of one `Task` and source a script for a second.
+
+```py
+TaskRunner: Executor = Executor("RunTask")
+# update_environment(env: Dict[str,str], update_path: str = "prepend") # "append" or "overwrite"
+TaskRunner.update_environment(
+    { "PATH": "/sdf/group/lcls/ds/tools" }  # This entry will be prepended to the PATH available after sourcing `psconda.sh`
+)
+
+Task2Runner: Executor = Executor("RunTask2")
+Task2Runner.shell_source("/sdf/group/lcls/ds/tools/new_task_setup.sh") # Will source new_task_setup.sh script
+```
+
+### Using templates: managing third-party configuration files
+
 ## Creating a "First-Party" `Task`
-### Specifying a `TaskParameters` Model for your `Task`.
+### Specifying a `TaskParameters` Model for your `Task`
 Parameter models have a format that must be followed for "Third-Party" `Task`s, but "First-Party" `Task`s have a little more liberty in how parameters are dealt with, since the `Task` will do all the parsing itself.
 
 To create a model, the basic steps are:
