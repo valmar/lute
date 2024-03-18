@@ -283,10 +283,14 @@ def _add_row_no_duplicate(
 
 def _select_from_db(
     con: sqlite3.Connection, table_name: str, col_name: str, condition: Dict[str, str]
-) -> Any:
-    param, val = next(iter(condition.items()))
-    sql: str = f"SELECT {col_name} FROM {table_name} WHERE {param} = {val}"
+) -> Optional[Any]:
+    sql: str
+    if condition:
+        param, val = next(iter(condition.items()))
+        sql = f"SELECT {col_name} FROM {table_name} WHERE {param} = {val}"
+    else:
+        sql = f"SELECT {col_name} FROM {table_name}"
     with con:
         res: sqlite3.Cursor = con.execute(sql)
         entries: List[Any] = res.fetchall()
-    return entries[-1][0]
+    return entries[-1][0] if entries else None

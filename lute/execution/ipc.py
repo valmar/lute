@@ -161,34 +161,31 @@ class PipeCommunicator(Communicator):
         Returns:
             msg (Message): The message read, containing contents and signal.
         """
-        if self._use_pickle:
-            signal: bytes = proc.stderr.read()
-            if signal is not None:
-                signal: str = signal.decode()
-            raw_contents: bytes = proc.stdout.read()
-            if raw_contents:
-                try:
-                    contents: Any = pickle.loads(raw_contents)
-                except pickle.UnpicklingError as err:
-                    # Can occur if Task switches to unpickled mode before the
-                    # Executor can
-                    self._use_pickle = False
-                    contents: str = raw_contents.decode()
-            else:
-                contents: str = ""
+        signal: Optional[str]
+        contents: Optional[str]
+        raw_signal: bytes = proc.stderr.read()
+        raw_contents: bytes = proc.stdout.read()
+        if raw_signal is not None:
+            signal = raw_signal.decode()
         else:
-            signal: bytes = proc.stderr.read()
-            if signal is not None:
+            signal = raw_signal
+        if raw_contents:
+            if self._use_pickle:
                 try:
-                    signal: str = signal.decode()
-                except UnicodeDecodeError as err:
-                    signal: str = pickle.loads(signal)
-            contents: bytes = proc.stdout.read()
-            if contents is not None:
+                    contents = pickle.loads(raw_contents)
+                except pickle.UnpicklingError as err:
+                    logger.debug("PipeCommunicator (Executor) - Set _use_pickle=False")
+                    self._use_pickle = False
+                    contents = self._safe_unpickle_decode(raw_contents)
+            else:
                 try:
-                    contents: str = contents.decode()
+                    contents = raw_contents.decode()
                 except UnicodeDecodeError as err:
-                    contents: str = pickle.loads(contents)
+                    logger.debug("PipeCommunicator (Executor) - Set _use_pickle=True")
+                    self._use_pickle = True
+                    contents = self._safe_unpickle_decode(raw_contents)
+        else:
+            contents = None
 
         if signal and signal not in LUTE_SIGNALS:
             # Some tasks write on stderr
@@ -198,8 +195,68 @@ class PipeCommunicator(Communicator):
                 contents = f"({signal})"
             else:
                 contents = f"{contents} ({signal})"
-            signal: str = ""
+            signal = None
+
         return Message(contents=contents, signal=signal)
+
+    def _safe_unpickle_decode(self, maybe_mixed: bytes) -> Optional[str]:
+        """This method is used to unpickle and/or decode a bytes object.
+
+        It attempts to handle cases where contents can be mixed, i.e., part of
+        the message must be decoded and the other part unpickled. It handles
+        only two-way splits. If there are more complex arrangements such as:
+        <pickled>:<unpickled>:<pickled> etc, it will give up.
+
+        The simpler two way splits are unlikely to occur in normal usage. They
+        may arise when debugging if, e.g., `print` statements are mixed with the
+        usage of the `_report_to_executor` method.
+
+        Note that this method works because ONLY text data is assumed to be
+        sent via the pipes. The method needs to be revised to handle non-text
+        data if the `Task` is modified to also send that via PipeCommunicator.
+        The use of pickle is supported to provide for this option if it is
+        necessary. It may be deprecated in the future.
+
+        Be careful when making changes. This method has seemingly redundant
+        checks because unpickling will not throw an error if a full object can
+        be retrieved. That is, the library will ignore extraneous bytes. This
+        method attempts to retrieve that information if the pickled data comes
+        first in the stream.
+
+        Args:
+            maybe_mixed (bytes): A bytes object which could require unpickling,
+                decoding, or both.
+
+        Returns:
+            contents (Optional[str]): The unpickled/decoded contents if possible.
+                Otherwise, None.
+        """
+        contents: Optional[str]
+        try:
+            contents = pickle.loads(maybe_mixed)
+            repickled: bytes = pickle.dumps(contents)
+            if len(repickled) < len(maybe_mixed):
+                # Successful unpickling, but pickle stops even if there are more bytes
+                additional_data: str = maybe_mixed[len(repickled) :].decode()
+                contents = f"{contents}{additional_data}"
+        except pickle.UnpicklingError as err:
+            try:
+                contents = maybe_mixed.decode()
+            except UnicodeDecodeError as err2:
+                try:
+                    contents = maybe_mixed[: err2.start].decode()
+                    contents = f"{contents}{pickle.loads(maybe_mixed[err2.start:])}"
+                except Exception as err3:
+                    logger.debug(
+                        f"PipeCommunicator unable to decode/parse data! {err3}"
+                    )
+                    contents = None
+        except UnicodeDecodeError as err3:
+            missing_bytes: int = len(maybe_mixed) - len(repickled)
+            logger.debug(
+                f"PipeCommunicator has truncated message. Unable to retrieve {missing_bytes} bytes."
+            )
+        return contents
 
     def write(self, msg: Message) -> None:
         """Write to stdout and stderr.

@@ -126,4 +126,63 @@ TestBinaryErr:
 TestSocket:
   array_size: 8000 # Size of arrays to send. 8000 floats ~ 6.4e4
   num_arrays: 10 # Number of arrays to send.
+
++FindPeaksPyAlgos:
++    outdir: ""
++    n_events: 100
++    det_name: "Rayonix"
++    event_receiver: "evr0"
++    tag: "red"
++    event_logic: false
++    psana_mask: false
++    mask_file: null
++    min_peaks: 10
++    max_peaks: 2048
++    npix_min: 2
++    npix_max: 30
++    amax_thr: 40
++    atot_thr: 180
++    son_min: 3.0
++    peak_rank: 3
++    r0: 3.0
++    dr: 2.0
++    nsigm: 10.0
++    compression:
++        compressor: "sz3"
++        abs_error: 10.0
++        bin_size: 2
++        roi_window_size: 9
+
+IndexCrystFEL:
+  #in_file: ""            # Location of a `.lst` file listing CXI files
+  #out_file: ""           # Where to write the output stream file
+  geometry: ""            # Location of a geometry file
+  indexing: "mosflm"      # Indexing methods
+  int_radius: "4,5,7"     # Integration radii
+  tolerance: "5,5,5,1.5"  # Tolerances
+  multi: True
+  profile: True
+  no_revalidate: True
+
+MergePartialator:
+  #in_file: ""
+  #out_file: ""
+  #model: "unity"
+  #niter: 1
+  symmetry: "mmm"
+
+CompareHKL:
+  #in_files: ""
+  #fom: "Rsplit"
+  #nshells: 10
+  #shell_file: ""
+  #cell_file: ""
+  symmetry: "mmm"
+
+#ManipulateHKL:
+  #output_format: "mtz"
+  #out_file: "..."
+
+DimpleSolve:
+  pdb: "/path/to/pdb"
 ...

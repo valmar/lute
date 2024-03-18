@@ -20,7 +20,7 @@ __all__ = ["record_analysis_db", "read_latest_db_entry"]
 __author__ = "Gabriel Dorlhiac"
 
 import logging
-from typing import List, Dict, Dict, Any, Tuple
+from typing import List, Dict, Dict, Any, Tuple, Optional
 
 from .models.base import TaskParameters
 from ..tasks.dataclasses import TaskResult, TaskStatus, DescribedAnalysis
@@ -49,13 +49,18 @@ def _cfg_to_exec_entry_cols(
 
         columns (Dict[str, str]): Converted {name:type} dictionary.
     """
+    selected_env_vars: Dict[str, str] = {
+        key: cfg.task_env[key]
+        for key in cfg.task_env
+        if "LUTE_" in key or "SLURM_" in key
+    }
     entry: Dict[str, Any] = {
-        # "env": ";".join(f"{key}={value}" for key, value in cfg.task_env.items()),
+        "env": ";".join(f"{key}={value}" for key, value in selected_env_vars.items()),
         "poll_interval": cfg.poll_interval,
         "communicator_desc": ";".join(desc for desc in cfg.communicator_desc),
     }
     columns: Dict[str, str] = {
-        # "env": "TEXT",
+        "env": "TEXT",
         "poll_interval": "REAL",
         "communicator_desc": "TEXT",
     }
@@ -257,7 +262,9 @@ def record_analysis_db(cfg: DescribedAnalysis) -> None:
         _add_task_entry(con, task_name, full_task_entry)
 
 
-def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any:
+def read_latest_db_entry(
+    db_dir: str, task_name: str, param: str, valid_only: bool = True
+) -> Optional[Any]:
     """Read most recent value entered into the database for a Task parameter.
 
     (Will be updated for schema compliance as well as Task name.)
@@ -269,15 +276,25 @@ def read_latest_db_entry(db_dir: str, task_name: str, param: str) -> Any:
 
         param (str): The parameter name for the Task that we want to retrieve.
 
+        valid_only (bool): Whether to consider only valid results or not. E.g.
+            An input file may be useful even if the Task result is invalid
+            (Failed). Default = True.
+
     Returns:
         val (Any): The most recently entered value for `param` of `task_name`
-            that can be found in the database.
+            that can be found in the database. Returns None if nothing found.
     """
     import sqlite3
     from ._sqlite import _select_from_db
 
     con: sqlite3.Connection = sqlite3.Connection(f"{db_dir}/lute.db")
     with con:
-        entry: Any = _select_from_db(con, task_name, param, {"valid_flag": "1"})
-
+        try:
+            cond: Dict[str, str] = {}
+            if valid_only:
+                cond = {"valid_flag": "1"}
+            entry: Any = _select_from_db(con, task_name, param, cond)
+        except sqlite3.OperationalError as err:
+            logger.debug(f"Cannot retrieve value {param} due to: {err}")
+            entry = None
     return entry

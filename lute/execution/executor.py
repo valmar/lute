@@ -23,7 +23,7 @@ Exceptions
 
 """
 
-__all__ = ["BaseExecutor", "Executor"]
+__all__ = ["BaseExecutor", "Executor", "MPIExecutor"]
 __author__ = "Gabriel Dorlhiac"
 
 import _io
@@ -208,7 +208,34 @@ class BaseExecutor(ABC):
                         " Options are: prepend, append, overwrite."
                     )
                 )
+        os.environ.update(env)
         self._analysis_desc.task_env.update(env)
+
+    def shell_source(self, env: str) -> None:
+        """Source a script.
+
+        Unlike `update_environment` this method sources a new file.
+
+        Args:
+            env (str): Path to the script to source.
+        """
+        import sys
+
+        if not os.path.exists(env):
+            logger.info(f"Cannot source environment from {env}!")
+            return
+
+        script: str = (
+            f"set -a\n"
+            f'source "{env}" >/dev/null\n'
+            f'{sys.executable} -c "import os; print(dict(os.environ))"\n'
+        )
+        logger.info(f"Sourcing file {env}")
+        o, e = subprocess.Popen(
+            ["bash", "-c", script], stdout=subprocess.PIPE
+        ).communicate()
+        new_environment: Dict[str, str] = eval(o)
+        self._analysis_desc.task_env = new_environment
 
     def _pre_task(self) -> None:
         """Any actions to be performed before task submission.
@@ -250,14 +277,11 @@ class BaseExecutor(ABC):
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
-        executable_path: str
-        if lute_path is not None:
-            executable_path = f"{lute_path}/subprocess_task.py"
-        else:
-            logger.debug("Absolute path to subprocess.py not found.")
+        if lute_path is None:
+            logger.debug("Absolute path to subprocess_task.py not found.")
             lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
-            os.environ["LUTE_PATH"] = lute_path
-            executable_path = f"{lute_path}/subprocess_task.py"
+            self.update_environment({"LUTE_PATH": lute_path})
+        executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
@@ -428,3 +452,71 @@ class Executor(BaseExecutor):
         reporting to third party services, etc.
         """
         self._task_loop(proc)  # Perform a final read.
+
+
+class MPIExecutor(Executor):
+    """Runs first-party Tasks that require MPI.
+
+    This Executor is otherwise identical to the standard Executor, except it
+    uses `mpirun` for `Task` submission. Currently this Executor assumes a job
+    has been submitted using SLURM as a first step. It will determine the number
+    of MPI ranks based on the resources requested. As a fallback, it will try
+    to determine the number of local cores available for cases where a job has
+    not been submitted via SLURM. On S3DF, the second determination mechanism
+    should accurately match the environment variable provided by SLURM indicating
+    resources allocated.
+
+    This Executor will submit the Task to run with a number of processes equal
+    to the total number of cores available minus 1. A single core is reserved
+    for the Executor itself.
+
+    Methods:
+        execute_task(): Run the task as a subprocess using `mpirun`.
+    """
+
+    def execute_task(self) -> None:
+        """Run the requested Task as a subprocess."""
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        if lute_path is None:
+            logger.debug("Absolute path to subprocess.py not found.")
+            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
+            os.environ["LUTE_PATH"] = lute_path
+        executable_path: str = f"{lute_path}/subprocess_task.py"
+        config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
+        params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
+
+        py_cmd: str = ""
+        nprocs: int = max(
+            int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1
+        )
+        mpi_cmd: str = f"mpirun -np {nprocs}"
+        if __debug__:
+            py_cmd = f"python -B -u -m mpi4py.run {executable_path} {params}"
+        else:
+            py_cmd = f"python -OB -u -m mpi4py.run {executable_path} {params}"
+
+        cmd: str = f"{mpi_cmd} {py_cmd}"
+        proc: subprocess.Popen = self._submit_task(cmd)
+
+        while self._task_is_running(proc):
+            self._task_loop(proc)
+            time.sleep(self._analysis_desc.poll_interval)
+
+        os.set_blocking(proc.stdout.fileno(), True)
+        os.set_blocking(proc.stderr.fileno(), True)
+
+        self._finalize_task(proc)
+        proc.stdout.close()
+        proc.stderr.close()
+        proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
+        for comm in self._communicators:
+            comm.clear_communicator()
+

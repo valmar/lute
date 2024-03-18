@@ -91,7 +91,6 @@ class TaskParameters(BaseSettings):
 
     class Config:
         env_prefix = "LUTE_"
-        extra: str = "allow"
         underscore_attrs_are_private: bool = True
         copy_on_model_validation: str = "deep"
         allow_inf_nan: bool = False
@@ -125,8 +124,12 @@ class BaseBinaryParameters(TaskParameters):
     used for filling in third party configuration files.
     """
 
-    class Config:
+    class Config(TaskParameters.Config):
         extra: str = "allow"
+        short_flags_use_eq: bool = False
+        """Whether short command-line arguments are passed like `-x=arg`."""
+        long_flags_use_eq: bool = False
+        """Whether long command-line arguments are passed like `--long=arg`."""
 
     # lute_template_cfg: TemplateConfig
 
