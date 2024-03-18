@@ -14,7 +14,7 @@ import getpass
 import datetime
 import logging
 import argparse
-from typing import Dict, Union, List, Any
+from typing import Dict, Union, List
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -25,6 +25,19 @@ else:
     logging.basicConfig(level=logging.INFO)
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _retrieve_pw(instance: str = "prod") -> str:
+    path: str = "/sdf/group/lcls/ds/tools/lute/airflow_{instance}.txt"
+    if instance == "prod" or instance == "test":
+        path = path.format(instance)
+    else:
+        raise ValueError('`instance` must be either "test" or "prod"!')
+
+    with open(path, "r") as f:
+        pw: str = f.readline().strip()
+    return pw
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -45,10 +58,13 @@ if __name__ == "__main__":
     extra_args: List[str]  # Should contain all SLURM arguments!
     args, extra_args = parser.parse_known_args()
     airflow_instance: str
+    instance_str: str
     if args.test:
         airflow_instance = "http://172.24.5.190:8080/"
+        instance_str = "test"
     else:
         airflow_instance = "http://172.24.5.247:8080/"
+        instance_str = "prod"
 
     airflow_api_endpoints: Dict[str, str] = {
         "health": "api/v1/health",
@@ -57,7 +73,7 @@ if __name__ == "__main__":
 
     resp: requests.models.Response = requests.get(
         f"{airflow_instance}/{airflow_api_endpoints['health']}",
-        auth=HTTPBasicAuth(),  # NEED AUTH SOLUTION
+        auth=HTTPBasicAuth("btx", _retrieve_pw(instance_str)),
     )
     resp.raise_for_status()
 
@@ -86,7 +102,7 @@ if __name__ == "__main__":
     resp: requests.models.Response = requests.post(
         f"{airflow_instance}/{airflow_api_endpoints['run_dag']}",
         json=dag_run_data,
-        auth=HTTPBasicAuth(),  # NEED AUTH SOLUTION
+        auth=HTTPBasicAuth("btx", _retrieve_pw(instance_str)),
     )
     resp.raise_for_status()
     logger.info(resp.text)

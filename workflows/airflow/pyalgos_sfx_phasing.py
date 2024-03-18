@@ -21,7 +21,9 @@ from airflow import DAG
 from lute.operators.jidoperators import JIDSlurmOperator
 
 dag_id: str = f"lute_{os.path.splitext(os.path.basename(__file__))[0]}"
-description: str = "Run SFX processing using PyAlgos peak finding and experimental phasing"
+description: str = (
+    "Run SFX processing using PyAlgos peak finding and experimental phasing"
+)
 
 dag: DAG = DAG(
     dag_id=dag_id,
@@ -32,19 +34,29 @@ dag: DAG = DAG(
 
 peak_finder: JIDSlurmOperator = JIDSlurmOperator(task_id="PeakFinderPyAlgos", dag=dag)
 
-indexer: JIDSlurmOperator = JIDSlurmOperator(max_cores=120, task_id="CrystFELIndexer", dag=dag)
+indexer: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=120, task_id="CrystFELIndexer", dag=dag
+)
 
 # Merge
-merger: JIDSlurmOperator = JIDSlurmOperator(max_cores=120, task_id="PartialatorMerger", dag=dag)
+merger: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=120, task_id="PartialatorMerger", dag=dag
+)
 
 # Figures of merit
-hkl_comparer: JIDSlurmOperator = JIDSlurmOperator(max_cores=8, task_id="HKLComparer", dag=dag)
+hkl_comparer: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=8, task_id="HKLComparer", dag=dag
+)
 
 # HKL conversions
-hkl_manipulator: JIDSlurmOperator = JIDSlurmOperator(max_cores=8, task_id="HKLManipulator", dag=dag)
+hkl_manipulator: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=8, task_id="HKLManipulator", dag=dag
+)
 
 # SHELX Tasks
-shelxc: JIDSlurmOperator = JIDSlurmOperator(max_cores=20, task_id="SHELXCRunner", dag=dag)
+shelxc: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=20, task_id="SHELXCRunner", dag=dag
+)
 
 
 peak_finder >> indexer >> merger >> hkl_manipulator >> shelxc
