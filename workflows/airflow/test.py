@@ -32,6 +32,9 @@ tester: JIDSlurmOperator = JIDSlurmOperator(max_cores=2, task_id="Tester", dag=d
 binary_tester: JIDSlurmOperator = JIDSlurmOperator(
     max_cores=5, task_id="BinaryTester", dag=dag
 )
+binary_err_tester: JIDSlurmOperator = JIDSlurmOperator(
+    max_cores=5, task_id="BinaryErrTester", dag=dag
+)
 socket_tester: JIDSlurmOperator = JIDSlurmOperator(
     max_cores=2, task_id="SocketTester", dag=dag
 )
@@ -43,4 +46,5 @@ read_tester: JIDSlurmOperator = JIDSlurmOperator(
 )
 
 tester >> binary_tester
+tester >> binary_err_tester  # Second Task should fail
 tester >> socket_tester >> write_tester >> read_tester
