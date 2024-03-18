@@ -19,9 +19,9 @@ import time
 
 import numpy as np
 
-from .task import *
-from ..io.models.base import *
-from ..execution.ipc import Message
+from lute.tasks.task import *
+from lute.io.models.base import *
+from lute.execution.ipc import Message
 
 
 class Test(Task):

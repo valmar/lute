@@ -23,7 +23,7 @@ Exceptions
 
 """
 
-__all__ = ["BaseExecutor", "Executor"]
+__all__ = ["BaseExecutor", "Executor", "MPIExecutor"]
 __author__ = "Gabriel Dorlhiac"
 
 import _io
@@ -32,13 +32,10 @@ import subprocess
 import time
 import os
 import signal
-from typing import Dict, Callable, List, Union, Any, Tuple, Optional
-from typing_extensions import Self, TypeAlias
+from typing import Dict, Callable, List, Optional
+from typing_extensions import Self
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import warnings
-import types
-import resource
 import copy
 
 from .ipc import *
@@ -92,26 +89,19 @@ class BaseExecutor(ABC):
         signal.
         """
 
-        def no_pickle_mode(self: Self, msg: Message):
-            ...
+        def no_pickle_mode(self: Self, msg: Message): ...
 
-        def task_started(self: Self, msg: Message):
-            ...
+        def task_started(self: Self, msg: Message): ...
 
-        def task_failed(self: Self, msg: Message):
-            ...
+        def task_failed(self: Self, msg: Message): ...
 
-        def task_stopped(self: Self, msg: Message):
-            ...
+        def task_stopped(self: Self, msg: Message): ...
 
-        def task_done(self: Self, msg: Message):
-            ...
+        def task_done(self: Self, msg: Message): ...
 
-        def task_cancelled(self: Self, msg: Message):
-            ...
+        def task_cancelled(self: Self, msg: Message): ...
 
-        def task_result(self: Self, msg: Message):
-            ...
+        def task_result(self: Self, msg: Message): ...
 
     def __init__(
         self,
@@ -202,13 +192,13 @@ class BaseExecutor(ABC):
         if "PATH" in env:
             sep: str = os.pathsep
             if update_path == "prepend":
-                env[
-                    "PATH"
-                ] = f"{env['PATH']}{sep}{self._analysis_desc.task_env['PATH']}"
+                env["PATH"] = (
+                    f"{env['PATH']}{sep}{self._analysis_desc.task_env['PATH']}"
+                )
             elif update_path == "append":
-                env[
-                    "PATH"
-                ] = f"{self._analysis_desc.task_env['PATH']}{sep}{env['PATH']}"
+                env["PATH"] = (
+                    f"{self._analysis_desc.task_env['PATH']}{sep}{env['PATH']}"
+                )
             elif update_path == "overwrite":
                 pass
             else:
@@ -218,7 +208,34 @@ class BaseExecutor(ABC):
                         " Options are: prepend, append, overwrite."
                     )
                 )
+        os.environ.update(env)
         self._analysis_desc.task_env.update(env)
+
+    def shell_source(self, env: str) -> None:
+        """Source a script.
+
+        Unlike `update_environment` this method sources a new file.
+
+        Args:
+            env (str): Path to the script to source.
+        """
+        import sys
+
+        if not os.path.exists(env):
+            logger.info(f"Cannot source environment from {env}!")
+            return
+
+        script: str = (
+            f"set -a\n"
+            f'source "{env}" >/dev/null\n'
+            f'{sys.executable} -c "import os; print(dict(os.environ))"\n'
+        )
+        logger.info(f"Sourcing file {env}")
+        o, e = subprocess.Popen(
+            ["bash", "-c", script], stdout=subprocess.PIPE
+        ).communicate()
+        new_environment: Dict[str, str] = eval(o)
+        self._analysis_desc.task_env = new_environment
 
     def _pre_task(self) -> None:
         """Any actions to be performed before task submission.
@@ -259,7 +276,12 @@ class BaseExecutor(ABC):
 
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
-        executable_path: str = "subprocess_task.py"
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        if lute_path is None:
+            logger.debug("Absolute path to subprocess_task.py not found.")
+            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
+            self.update_environment({"LUTE_PATH": lute_path})
+        executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
@@ -281,8 +303,15 @@ class BaseExecutor(ABC):
         self._finalize_task(proc)
         proc.stdout.close()
         proc.stderr.close()
-        self._store_configuration()
         proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
         for comm in self._communicators:
             comm.clear_communicator()
 
@@ -371,26 +400,23 @@ class Executor(BaseExecutor):
             logger.info(
                 f"Executor: {self._analysis_desc.task_result.task_name} started"
             )
+            self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
 
         self.add_hook("task_started", task_started)
 
-        def task_failed(self: Executor, msg: Message):
-            ...
+        def task_failed(self: Executor, msg: Message): ...
 
         self.add_hook("task_failed", task_failed)
 
-        def task_stopped(self: Executor, msg: Message):
-            ...
+        def task_stopped(self: Executor, msg: Message): ...
 
         self.add_hook("task_stopped", task_stopped)
 
-        def task_done(self: Executor, msg: Message):
-            ...
+        def task_done(self: Executor, msg: Message): ...
 
         self.add_hook("task_done", task_done)
 
-        def task_cancelled(self: Executor, msg: Message):
-            ...
+        def task_cancelled(self: Executor, msg: Message): ...
 
         self.add_hook("task_cancelled", task_cancelled)
 
@@ -428,37 +454,68 @@ class Executor(BaseExecutor):
         self._task_loop(proc)  # Perform a final read.
 
 
-_SIGNUM: TypeAlias = Union[int, signal.Signals]
-_HANDLER: TypeAlias = Union[
-    Callable[[int, Union[types.FrameType, None]], Any], int, signal.Handlers, None
-]
+class MPIExecutor(Executor):
+    """Runs first-party Tasks that require MPI.
 
+    This Executor is otherwise identical to the standard Executor, except it
+    uses `mpirun` for `Task` submission. Currently this Executor assumes a job
+    has been submitted using SLURM as a first step. It will determine the number
+    of MPI ranks based on the resources requested. As a fallback, it will try
+    to determine the number of local cores available for cases where a job has
+    not been submitted via SLURM. On S3DF, the second determination mechanism
+    should accurately match the environment variable provided by SLURM indicating
+    resources allocated.
 
-def get_executor(where: str) -> Optional[Executor]:
-    """Return the current Executor."""
-    objects: Dict[str, Any] = globals()
-    for _, obj in objects.items():
-        if isinstance(obj, Executor):
-            return obj
-    return None
+    This Executor will submit the Task to run with a number of processes equal
+    to the total number of cores available minus 1. A single core is reserved
+    for the Executor itself.
 
+    Methods:
+        execute_task(): Run the task as a subprocess using `mpirun`.
+    """
 
-def sigchld_handler(signum: _SIGNUM, frame: types.FrameType) -> None:
-    """Handle child Task suspension and resumption from outside of Executor."""
-    # (pid, status, resource usage - can maybe infer errors, etc.)
-    ret: Tuple[int, int, resource.struct_rusage] = os.wait4(
-        -1, os.WUNTRACED | os.WCONTINUED
-    )
-    if os.WIFCONTINUED(ret[1]):
-        executor: Optional[Executor] = get_executor(__name__)
-        if executor:
-            executor._analysis_desc.task_result.task_status = TaskStatus.RUNNING
-            logger.info("Task resumed.")
-    elif os.WIFSTOPPED(ret[1]):
-        executor: Optional[Executor] = get_executor(__name__)
-        if executor:
-            executor._analysis_desc.task_result.task_status = TaskStatus.STOPPED
-            logger.info("Task stopped.")
+    def execute_task(self) -> None:
+        """Run the requested Task as a subprocess."""
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        if lute_path is None:
+            logger.debug("Absolute path to subprocess.py not found.")
+            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
+            os.environ["LUTE_PATH"] = lute_path
+        executable_path: str = f"{lute_path}/subprocess_task.py"
+        config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
+        params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
+        py_cmd: str = ""
+        nprocs: int = max(
+            int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1
+        )
+        mpi_cmd: str = f"mpirun -np {nprocs}"
+        if __debug__:
+            py_cmd = f"python -B -u -m mpi4py.run {executable_path} {params}"
+        else:
+            py_cmd = f"python -OB -u -m mpi4py.run {executable_path} {params}"
 
-signal.signal(signal.SIGCHLD, sigchld_handler)
+        cmd: str = f"{mpi_cmd} {py_cmd}"
+        proc: subprocess.Popen = self._submit_task(cmd)
+
+        while self._task_is_running(proc):
+            self._task_loop(proc)
+            time.sleep(self._analysis_desc.poll_interval)
+
+        os.set_blocking(proc.stdout.fileno(), True)
+        os.set_blocking(proc.stderr.fileno(), True)
+
+        self._finalize_task(proc)
+        proc.stdout.close()
+        proc.stderr.close()
+        proc.wait()
+        if ret := proc.returncode:
+            logger.info(f"Task failed with return code: {ret}")
+            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
+            # Ret code is 0, no exception was thrown, task forgot to set status
+            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
+            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
+        self._store_configuration()
+        for comm in self._communicators:
+            comm.clear_communicator()

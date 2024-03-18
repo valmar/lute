@@ -52,7 +52,7 @@ The `Executor` table contains information on the environment provided to the `Ex
 | `communicator_desc` | Description of the Communicators used.                                                                                                                                            |
 |                     |                                                                                                                                                                                   |
 
-**NOTE**: The `env` column is currently being ignored while a method is decided on to choose appropriate environment variables to save.
+**NOTE**: The `env` column currently only stores variables related to `SLURM` or `LUTE` itself.
 
 ### `Task` tables
 For every `Task` a table of the following format will be created. The exact number of columns will depend on the specific `Task`, as the number of parameters can vary between them, and each parameter gets its own column. Within a table, multiple experiments and runs can coexist. The experiment and run are not recorded directly. Instead the first two columns point to the id of entries in the general configuration and `Executor` tables respectively. The general configuration table entry will contain the experiment and run information.

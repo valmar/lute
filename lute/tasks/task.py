@@ -216,9 +216,17 @@ class BinaryTask(Task):
         out_file: str = self._task_parameters.lute_template_cfg.output_dir
         template_file: str = self._task_parameters.lute_template_cfg.template_dir
 
-        environment: Environment = Environment(
-            loader=FileSystemLoader("../../config/templates")
-        )
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        template_dir: str
+        if lute_path is None:
+            warnings.warn(
+                "LUTE_PATH is None in Task process! Using relative path for templates!",
+                category=UserWarning,
+            )
+            template_dir: str = "../../config/templates"
+        else:
+            template_dir = f"{lute_path}/config/templates"
+        environment: Environment = Environment(loader=FileSystemLoader(template_dir))
         template: Template = environment.get_template(template_file)
 
         with open(out_file, "w", encoding="utf-8") as cfg_out:
@@ -243,14 +251,24 @@ class BinaryTask(Task):
         identified.
         """
         super()._pre_run()
-        full_schema: Dict[
-            str, Union[str, Dict[str, Any]]
-        ] = self._task_parameters.schema()
+        full_schema: Dict[str, Union[str, Dict[str, Any]]] = (
+            self._task_parameters.schema()
+        )
+        short_flags_use_eq: bool
+        long_flags_use_eq: bool
+        if hasattr(self._task_parameters.Config, "short_flags_use_eq"):
+            short_flags_use_eq: bool = self._task_parameters.Config.short_flags_use_eq
+            long_flags_use_eq: bool = self._task_parameters.Config.long_flags_use_eq
+        else:
+            short_flags_use_eq = False
+            long_flags_use_eq = False
         for param, value in self._task_parameters.dict().items():
             # Clunky test with __dict__[param] because compound model-types are
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
             if (
                 param == "executable"
+                or value is None  # Cannot have empty values in argument list for execvp
+                or value == ""  # But do want to include, e.g. 0
                 or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
                 or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
             ):
@@ -260,34 +278,56 @@ class BinaryTask(Task):
                 self._add_to_jinja_context(param_name=param, value=value.params)
 
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
+            # Some model params do not match the commnad-line parameter names
+            param_repr: str
+            if "rename_param" in param_attributes:
+                param_repr = param_attributes["rename_param"]
+            else:
+                param_repr = param
             if "flag_type" in param_attributes:
                 flag: str = param_attributes["flag_type"]
                 if flag:
                     # "-" or "--" flags
                     if flag == "--" and isinstance(value, bool) and not value:
                         continue
-                    self._args_list.append(f"{flag}{param}")
+                    constructed_flag: str = f"{flag}{param_repr}"
                     if flag == "--" and isinstance(value, bool) and value:
                         # On/off flag, e.g. something like --verbose: No Arg
+                        self._args_list.append(f"{constructed_flag}")
                         continue
+                    if (flag == "-" and short_flags_use_eq) or (
+                        flag == "--" and long_flags_use_eq
+                    ):  # Must come after above check! Otherwise you get --param=True
+                        # Flags following --param=value or -param=value
+                        constructed_flag = f"{constructed_flag}={value}"
+                        self._args_list.append(f"{constructed_flag}")
+                        continue
+                    self._args_list.append(f"{constructed_flag}")
             else:
                 warnings.warn(
                     "Model parameters should be defined using Field(...,flag_type='') in the future.",
                     category=PendingDeprecationWarning,
                 )
                 if len(param) == 1:  # Single-dash flags
-                    self._args_list.append(f"-{param}")
+                    if short_flags_use_eq:
+                        self._args_list.append(f"-{param_repr}={value}")
+                        continue
+                    self._args_list.append(f"-{param_repr}")
                 elif "p_arg" in param:  # Positional arguments
                     pass
                 else:  # Double-dash flags
                     if isinstance(value, bool) and not value:
                         continue
-                    self._args_list.append(f"--{param}")
+                    if long_flags_use_eq:
+                        self._args_list.append(f"--{param_repr}={value}")
+                        continue
+                    self._args_list.append(f"--{param_repr}")
                     if isinstance(value, bool) and value:
                         continue
-            if value != "":
-                # Cannot have empty values in argument list for execvp
-                # So far this only comes for '', but do want to include, e.g. 0
+            if isinstance(value, str) and " " in value:
+                for val in value.split():
+                    self._args_list.append(f"{val}")
+            else:
                 self._args_list.append(f"{value}")
         if (
             hasattr(self._task_parameters, "lute_template_cfg")
@@ -315,25 +355,3 @@ class BinaryTask(Task):
         signal: str = "NO_PICKLE_MODE"
         msg: Message = Message(signal=signal)
         self._report_to_executor(msg)
-
-
-def get_task(where: str) -> Optional[Task]:
-    """Return the current Task."""
-    objects: Dict[str, Any] = globals()
-    for _, obj in objects.items():
-        if isinstance(obj, Task):
-            return obj
-    return None
-
-
-def timeout_handler(signum: int, frame: types.FrameType) -> None:
-    """Log and exit gracefully on Task timeout."""
-    task: Optional[Task] = get_task(__name__)
-    if task:
-        msg: Message = Message(contents="Timed out.", signal="TASK_FAILED")
-        task._report_to_executor(msg)
-        task.clean_up_timeout()
-        sys.exit(-1)
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
