@@ -34,28 +34,6 @@ def timeout_handler(signum: int, frame: types.FrameType) -> None:
 
 signal.signal(signal.SIGALRM, timeout_handler)
 
-
-def get_task() -> Optional[Task]:
-    """Return the current Task."""
-    objects: Dict[str, Any] = globals()
-    for _, obj in objects.items():
-        if isinstance(obj, Task):
-            return obj
-    return None
-
-
-def timeout_handler(signum: int, frame: types.FrameType) -> None:
-    """Log and exit gracefully on Task timeout."""
-    task: Optional[Task] = get_task()
-    if task:
-        msg: Message = Message(contents="Timed out.", signal="TASK_FAILED")
-        task._report_to_executor(msg)
-        task.clean_up_timeout()
-        sys.exit(-1)
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
-
 if __debug__:
     logging.basicConfig(level=logging.DEBUG)
 else:
