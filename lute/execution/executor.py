@@ -278,7 +278,7 @@ class BaseExecutor(ABC):
         """Run the requested Task as a subprocess."""
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
         if lute_path is None:
-            logger.debug("Absolute path to subprocess.py not found.")
+            logger.debug("Absolute path to subprocess_task.py not found.")
             lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
             self.update_environment({"LUTE_PATH": lute_path})
         executable_path: str = f"{lute_path}/subprocess_task.py"
