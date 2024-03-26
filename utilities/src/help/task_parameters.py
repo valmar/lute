@@ -85,7 +85,6 @@ def _format_parameter_row(param: str, param_description: PropertyDict) -> str:
 
     msg = f"{msg}\n\t{description}\n\n"
     return msg
-    #return f"{param} {typeinfo} - Default: {default}\n\t\t{description}\n\n"
 
 
 if __name__ == "__main__":
