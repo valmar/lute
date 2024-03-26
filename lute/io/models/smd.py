@@ -130,7 +130,7 @@ class SubmitSMDParameters(BaseBinaryParameters):
         False, description="Whether to not use archiver data.", flag_type="--"
     )
 
-    lute_template_cfg: TemplateConfig = TemplateConfig(template_dir="", output_dir="")
+    lute_template_cfg: TemplateConfig = TemplateConfig(template_name="", output_path="")
 
     @validator("producer", always=True)
     def validate_producer_path(cls, producer: str) -> str:
@@ -140,8 +140,8 @@ class SubmitSMDParameters(BaseBinaryParameters):
     def use_producer(
         cls, lute_template_cfg: TemplateConfig, values: Dict[str, Any]
     ) -> TemplateConfig:
-        if not lute_template_cfg.output_dir:
-            lute_template_cfg.output_dir = values["producer"]
+        if not lute_template_cfg.output_path:
+            lute_template_cfg.output_path = values["producer"]
         return lute_template_cfg
 
     # detnames: ThirdPartyParameters = ThirdPartyParameters({})
