@@ -143,7 +143,15 @@ class BaseBinaryParameters(TaskParameters):
 
 
 class TemplateConfig(BaseModel):
-    """Parameters used for templating of third party configuration files."""
+    """Parameters used for templating of third party configuration files.
 
-    template_dir: str
-    output_dir: str
+    Attributes:
+        template_name (str): The name of the template to use. This template must
+            live in `config/templates`.
+
+        output_path (str): The FULL path, including filename to write the
+            rendered template to.
+    """
+
+    template_name: str
+    output_path: str
