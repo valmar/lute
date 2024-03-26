@@ -276,6 +276,7 @@ class BinaryTask(Task):
             if isinstance(self._task_parameters.__dict__[param], ThirdPartyParameters):
                 # ThirdPartyParameters objects have a single parameter `params`
                 self._add_to_jinja_context(param_name=param, value=value.params)
+                continue
 
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
             # Some model params do not match the commnad-line parameter names
