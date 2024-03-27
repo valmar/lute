@@ -183,7 +183,7 @@ class PipeCommunicator(Communicator):
                     contents = raw_contents.decode()
                 except UnicodeDecodeError as err:
                     logger.debug("PipeCommunicator (Executor) - Set _use_pickle=True")
-                    #                    self._use_pickle = True
+                    self._use_pickle = True
                     contents = self._safe_unpickle_decode(raw_contents)
         else:
             contents = None
