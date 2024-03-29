@@ -395,7 +395,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         return in_file
 
     @validator("out_file", always=True)
-    def validate_in_file(cls, out_file: str, values: Dict[str, Any]) -> str:
+    def validate_out_file(cls, out_file: str, values: Dict[str, Any]) -> str:
         if out_file == "":
             expmt: str = values["lute_config"].experiment
             run: int = values["lute_config"].run
