@@ -10,7 +10,7 @@ Classes:
     BaseBinaryParameters(TaskParameters): Base class for Third-party, binary
         executable Tasks.
 
-    ThirdPartyParameters: Dataclass to represent parameters of binary
+    TemplateParameters: Dataclass to represent parameters of binary
         (third-party) Tasks which are used for additional config files.
 
     TemplateConfig(BaseModel): Class for holding information on where templates
@@ -21,7 +21,7 @@ __all__ = [
     "TaskParameters",
     "AnalysisHeader",
     "TemplateConfig",
-    "ThirdPartyParameters",
+    "TemplateParameters",
     "BaseBinaryParameters",
 ]
 __author__ = "Gabriel Dorlhiac"
@@ -99,7 +99,7 @@ class TaskParameters(BaseSettings):
 
 
 @dataclass
-class ThirdPartyParameters:
+class TemplateParameters:
     """Class for representing parameters for third party configuration files.
 
     These parameters can represent arbitrary data types and are used in
@@ -137,7 +137,7 @@ class BaseBinaryParameters(TaskParameters):
     def extra_fields_to_thirdparty(cls, values):
         for key in values:
             if key not in cls.__fields__:
-                values[key] = ThirdPartyParameters(values[key])
+                values[key] = TemplateParameters(values[key])
 
         return values
 

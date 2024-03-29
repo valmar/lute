@@ -6,7 +6,8 @@ Classes:
     TaskStatus: Enumeration of possible Task statuses (running, pending, failed,
         etc.).
 
-    BinaryTask: Class to run a third-party executable binary as a `Task`.
+    DescribedAnalysis: Executor's description of a `Task` run (results,
+        parameters, env).
 """
 
 __all__ = ["TaskResult", "TaskStatus", "DescribedAnalysis"]

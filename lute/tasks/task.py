@@ -3,10 +3,10 @@
 Classes:
     Task: Abstract base class from which all analysis tasks are derived.
 
-    BinaryTask: Class to run a third-party executable binary as a `Task`.
+    ThirdPartyTask: Class to run a third-party executable binary as a `Task`.
 """
 
-__all__ = ["Task", "TaskResult", "TaskStatus", "DescribedAnalysis", "BinaryTask"]
+__all__ = ["Task", "TaskResult", "TaskStatus", "DescribedAnalysis", "ThirdPartyTask"]
 __author__ = "Gabriel Dorlhiac"
 
 import time
@@ -19,7 +19,7 @@ import types
 
 from ..io.models.base import (
     TaskParameters,
-    ThirdPartyParameters,
+    TemplateParameters,
     TemplateConfig,
     AnalysisHeader,
 )
@@ -159,7 +159,7 @@ class Task(ABC):
         ...
 
 
-class BinaryTask(Task):
+class ThirdPartyTask(Task):
     """A `Task` interface to analysis with binary executables."""
 
     def __init__(self, *, params: TaskParameters) -> None:
@@ -199,7 +199,7 @@ class BinaryTask(Task):
         """
         context_update: Dict[str, Any] = {param_name: value}
         if __debug__:
-            msg: Message = Message(contents=f"ThirdPartyParameters: {context_update}")
+            msg: Message = Message(contents=f"TemplateParameters: {context_update}")
             self._report_to_executor(msg)
         self._template_context.update(context_update)
 
@@ -273,8 +273,8 @@ class BinaryTask(Task):
                 or isinstance(self._task_parameters.__dict__[param], AnalysisHeader)
             ):
                 continue
-            if isinstance(self._task_parameters.__dict__[param], ThirdPartyParameters):
-                # ThirdPartyParameters objects have a single parameter `params`
+            if isinstance(self._task_parameters.__dict__[param], TemplateParameters):
+                # TemplateParameters objects have a single parameter `params`
                 self._add_to_jinja_context(param_name=param, value=value.params)
                 continue
 

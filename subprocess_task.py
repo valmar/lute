@@ -7,7 +7,7 @@ import types
 import importlib.util
 from typing import Type, Optional, Dict, Any
 
-from lute.tasks.task import Task, BinaryTask
+from lute.tasks.task import Task, ThirdPartyTask
 from lute.execution.ipc import Message
 from lute.io.config import *
 from lute.io.models.base import TaskParameters, BaseBinaryParameters
@@ -63,7 +63,7 @@ TaskType: Type[Task]
 module_with_task: Optional[str] = None
 lute_path: str = os.getenv("LUTE_PATH", os.path.dirname(__file__))
 if isinstance(task_parameters, BaseBinaryParameters):
-    TaskType = BinaryTask
+    TaskType = ThirdPartyTask
 else:
     for module_name in os.listdir(f"{lute_path}/lute/tasks"):
         if module_name.endswith(".py") and module_name not in [
@@ -83,7 +83,7 @@ else:
         )
         sys.exit(-1)
 
-# If we got this far we should have a module or are BinaryTask
+# If we got this far we should have a module or are ThirdPartyTask
 if module_with_task is not None:
     spec: importlib.machinery.ModuleSpec = importlib.util.spec_from_file_location(
         module_with_task, f"{lute_path}/lute/tasks/{module_with_task}.py"
