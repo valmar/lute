@@ -22,7 +22,7 @@ from lute.operators.jidoperators import JIDSlurmOperator
 
 dag_id: str = f"lute_{os.path.splitext(os.path.basename(__file__))[0]}"
 description: str = (
-    "Run SFX processing using PyAlgos peak finding and experimental phasing"
+    "Run SFX processing using PyAlgos peak finding and Molecular Replacement"
 )
 
 dag: DAG = DAG(
@@ -54,12 +54,12 @@ hkl_manipulator: JIDSlurmOperator = JIDSlurmOperator(
 )
 
 # SHELX Tasks
-shelxc: JIDSlurmOperator = JIDSlurmOperator(
-    max_cores=20, task_id="SHELXCRunner", dag=dag
+dimple_runner: JIDSlurmOperator = JIDSlurmOperator(
+    task_id="DimpleSolver", dag=dag
 )
 
 
-peak_finder >> indexer >> merger >> hkl_manipulator >> shelxc
+peak_finder >> indexer >> merger >> hkl_manipulator >> dimple_runner
 merger >> hkl_comparer
 
 # Run summaries
