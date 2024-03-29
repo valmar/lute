@@ -54,9 +54,7 @@ hkl_manipulator: JIDSlurmOperator = JIDSlurmOperator(
 )
 
 # SHELX Tasks
-dimple_runner: JIDSlurmOperator = JIDSlurmOperator(
-    task_id="DimpleSolver", dag=dag
-)
+dimple_runner: JIDSlurmOperator = JIDSlurmOperator(task_id="DimpleSolver", dag=dag)
 
 
 peak_finder >> indexer >> merger >> hkl_manipulator >> dimple_runner
