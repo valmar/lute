@@ -291,6 +291,170 @@ Task2Runner.shell_source("/sdf/group/lcls/ds/tools/new_task_setup.sh") # Will so
 
 ### Using templates: managing third-party configuration files
 
+Some third-party executables will require their own configuration files. These are often separate JSON or YAML files, although they can also be bash or Python scripts which are intended to be edited. Since LUTE requires its own configuration YAML file, it attempts to handle these cases by using Jinja templates. When wrapping a third-party task a template can also be provided - with small modifications to the `Task`'s pydantic model, LUTE can process special types of parameters to render them in the template. LUTE offloads all the template rendering to Jinja, making the required additions to the pydantic model small. On the other hand, it does require understanding the Jinja syntax, and the provision of a well-formatted template, to properly parse parameters. Some basic examples of this syntax will be shown below; however, it is recommended that the `Task` implementer refer to the [official Jinja documentation](https://jinja.palletsprojects.com/en/3.1.x/) for more information.
+
+LUTE provides two additional base models which are used for template parsing in conjunction with the primary `Task` model. These are:
+- `ThirdPartyParameters` objects which hold parameters which will be used to render a portion of a template.
+- `TemplateConfig` objects which hold two strings: the name of the template file to use and the full path (including filename) of where to output the rendered result.
+
+`Task` models which inherit from the `BaseBinaryParameters` model, as all third-party `Task`s should, allow for extra arguments. LUTE will parse any extra arguments provided in the configuration YAML as `ThirdPartyParameters` objects automatically, which means that they do not need to be explicitly added to the pydantic model (although they can be). As such the **only** requirement on the Python-side when adding template rendering functionality to the `Task` is the addition of one parameter - an instance of `TemplateConfig`. The instance **MUST** be called `lute_template_cfg`.
+
+```py
+from pydantic import Field, validator
+
+from .base import TemplateConfig
+
+class RunTaskParamaters(BaseBinaryParameters):
+    ...
+    # This parameter MUST be called lute_template_cfg!
+    lute_template_cfg: TemplateConfig = Field(
+        TemplateConfig(
+            template_name="name_of_template.json",
+            output_path="/path/to/write/rendered_output_to.json",
+        ),
+        description="Template rendering configuration",
+    )
+```
+
+LUTE looks for the template in `config/templates`, so only the name of the template file to use within that directory is required for the `template_name` attribute of `lute_template_cfg`. LUTE can write the output anywhere (the user has permissions), and with any name, so the full absolute path including filename should be used for the `output_path` of `lute_template_cfg`.
+
+The rest of the work is done by the combination of Jinja, LUTE's configuration YAML file, and the template itself. Understanding the interplay between these components is perhaps best illustrated by an example. As such, let us consider a simple third-party `Task` whose only input parameter (on the command-line) is the location of a configuration JSON file. We'll call the third-party executable `jsonuser` and our `Task` model, the `RunJsonUserParameters`. We assume the program is run like:
+```bash
+jsonuser -i <input_file.json>
+```
+
+The first step is to setup the pydantic model as before.
+
+```py
+from pydantic import Field, validator
+
+from .base import TemplateConfig
+
+class RunJsonUserParameters:
+    executable: str = Field(
+        "/path/to/jsonuser", description="Executable which requires a JSON configuration file."
+    )
+    # Lets assume the JSON file is passed as "-i <path_to_json>"
+    input_json: str = Field(
+        "", description="Path to the input JSON file.", flag_type="-", rename_param="i"
+    )
+```
+
+The next step is to create a template for the JSON file. Let's assume the JSON file looks like:
+```
+{
+    "param1": "arg1",
+    "param2": 4,
+    "param3": {
+        "a": 1,
+        "b": 2
+    },
+    "param4": [
+        1,
+        2,
+        3
+    ]
+}
+```
+
+Any, or all of these values can be substituted for, and we can determine the way in which we will provide them. I.e. a substitution can be provided for each variable individually, or, for example for a nested hierarchy, a dictionary can be provided which will substitute all the items at once. For this simple case, let's provide variables for `param1`, `param2`, `param3.b` and assume that we want the first and second entries for `param4` to be identical for our use case (i.e., we can use one variable for them both. In total, this means we will perform 5 substitutions using 4 variables. Jinja will substitute a variable anywhere it sees the following syntax, `{{ variable_name }}`. As such a valid template for our use-case may look like:
+```
+{
+    "param1": {{ str_var }},
+    "param2": {{ int_var }},
+    "param3": {
+        "a": 1,
+        "b": {{ p3_b }}
+    },
+    "param4": [
+        {{ val }},
+        {{ val }},
+        3
+    ]
+}
+```
+
+We save this file as `jsonuser.json` in `config/templates`. Next, we will update the original pydantic model to include our template configuration. We still have an issue, however, in that we need to decide where to write the output of the template to. In this case, we can use the `input_json` parameter. We will assume that the user will provide this, although a default value can also be used. A custom validator will be added so that we can take the `input_json` value and update the value of `lute_template_cfg.output_path` with it.
+
+```py
+# from typing import Optional
+
+from pydantic import Field, validator
+
+from .base import TemplateConfig #, ThirdPartyParameters
+
+class RunJsonUserParameters:
+    executable: str = Field(
+        "jsonuser", description="Executable which requires a JSON configuration file."
+    )
+    # Lets assume the JSON file is passed as "-i <path_to_json>"
+    input_json: str = Field(
+        "", description="Path to the input JSON file.", flag_type="-", rename_param="i"
+    )
+    # Add template configuration! *MUST* be called `lute_template_cfg`
+    lute_template_cfg: TemplateConfig = Field(
+        TemplateConfig(
+            template_name="jsonuser.json", # Only the name of the file here.
+            output_path="",
+        ),
+        description="Template rendering configuration",
+    )
+    # We do not need to include these ThirdPartyParameters, they will be added
+    # automatically if provided in the YAML
+    #str_var: Optional[ThirdPartyParameters]
+    #int_var: Optional[ThirdPartyParameters]
+    #p3_b: Optional[ThirdPartyParameters]
+    #val: Optional[ThirdPartyParameters]
+
+
+    # Tell LUTE to write the rendered template to the location provided with
+    # `input_json`. I.e. update `lute_template_cfg.output_path`
+    @validator("lute_template_cfg", always=True)
+    def update_output_path(
+        cls, lute_template_cfg: TemplateConfig, values: Dict[str, Any]
+    ) -> TemplateConfig:
+        if lute_template_cfg.output_path == "":
+            lute_template_cfg.output_path = values["input_json"]
+        return lute_template_cfg
+```
+
+All that is left to render the template, is to provide the variables we want to substitute in the LUTE configuration YAML. In our case we must provide the 4 variable names we included within the substitution syntax (`{{ var_name }}`). The names in the YAML must match those in the template.
+
+```yaml
+RunJsonUser:
+    input_json: "/my/chosen/path.json" # We'll come back to this...
+    str_var: "arg1" # Will substitute for "param1": "arg1"
+    int_var: 4 # Will substitute for "param2": 4
+    p3_b: 2  # Will substitute for "param3: { "b": 2 }
+    val: 2 # Will substitute for "param4": [2, 2, 3] in the JSON
+```
+
+If on the other hand, a user were to have an already valid JSON file, it is possible to turn off the template rendering. (ALL) Template variables (`ThirdPartyParameters`) are simply excluded from the configuration YAML.
+
+```yaml
+RunJsonUser:
+    input_json: "/path/to/existing.json"
+    #str_var: ...
+    #...
+```
+
+#### Additional Jinja Syntax
+There are many other syntactical constructions we can use with Jinja. Some of the useful ones are:
+
+**If Statements** - E.g. only include portions of the template if a value is defined.
+```
+{% if VARNAME is defined %}
+// Stuff to include
+{% endif %}
+```
+
+**Loops** - E.g. Unpacking multiple elements from a dictionary.
+```
+{% for name, value in VARNAME.items() %}
+// Do stuff with name and value
+{% endfor %}
+```
+
 ## Creating a "First-Party" `Task`
 ### Specifying a `TaskParameters` Model for your `Task`
 Parameter models have a format that must be followed for "Third-Party" `Task`s, but "First-Party" `Task`s have a little more liberty in how parameters are dealt with, since the `Task` will do all the parsing itself.

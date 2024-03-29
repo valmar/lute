@@ -212,8 +212,8 @@ class BinaryTask(Task):
         """
         from jinja2 import Environment, FileSystemLoader, Template
 
-        out_file: str = self._task_parameters.lute_template_cfg.output_dir
-        template_file: str = self._task_parameters.lute_template_cfg.template_dir
+        out_file: str = self._task_parameters.lute_template_cfg.output_path
+        template_name: str = self._task_parameters.lute_template_cfg.template_name
 
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
         template_dir: str
@@ -226,7 +226,7 @@ class BinaryTask(Task):
         else:
             template_dir = f"{lute_path}/config/templates"
         environment: Environment = Environment(loader=FileSystemLoader(template_dir))
-        template: Template = environment.get_template(template_file)
+        template: Template = environment.get_template(template_name)
 
         with open(out_file, "w", encoding="utf-8") as cfg_out:
             cfg_out.write(template.render(self._template_context))
@@ -275,6 +275,7 @@ class BinaryTask(Task):
             if isinstance(self._task_parameters.__dict__[param], ThirdPartyParameters):
                 # ThirdPartyParameters objects have a single parameter `params`
                 self._add_to_jinja_context(param_name=param, value=value.params)
+                continue
 
             param_attributes: Dict[str, Any] = full_schema["properties"][param]
             # Some model params do not match the commnad-line parameter names
