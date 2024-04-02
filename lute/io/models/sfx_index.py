@@ -5,24 +5,24 @@ Classes:
         CrystFEL's `indexamajig`.
 """
 
-__all__ = ["IndexCrystFELParameters"]
+__all__ = ["IndexCrystFELParameters", "MergeStreamFilesParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 import os
-from typing import Union, List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import (
     AnyUrl,
-    PositiveInt,
-    PositiveFloat,
-    NonNegativeInt,
     Field,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
     conint,
     validator,
 )
 
-from .base import BaseBinaryParameters
 from ..db import read_latest_db_entry
+from .base import BaseBinaryParameters, TaskParameters
 
 
 class IndexCrystFELParameters(BaseBinaryParameters):
@@ -403,3 +403,19 @@ class IndexCrystFELParameters(BaseBinaryParameters):
             fname: str = f"{expmt}_r{run:04d}.stream"
             return f"{work_dir}/{fname}"
         return out_file
+
+
+class MergeStreamFilesParameters(TaskParameters):
+
+    in_file: Optional[str] = Field(
+        "",
+        description="Root of directory tree storing stream files to merge.",
+        flag_type="-",
+        rename_param="i",
+    )
+    out_file: str = Field(
+        "",
+        description="Path to merged output stream file.",
+        flag_type="-",
+        rename_param="o",
+    )

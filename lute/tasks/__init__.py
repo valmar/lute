@@ -9,6 +9,7 @@ Exceptions:
 """
 
 from typing import Type
+
 from .task import Task
 
 
@@ -59,5 +60,10 @@ def import_task(task_name: str) -> Type[Task]:
         from .sfx_find_peaks import FindPeaksPyAlgos
 
         return FindPeaksPyAlgos
+
+    if task_name == "MergeStreamFiles":
+        from .sfx_index import MergeStreamFiles
+
+        return MergeStreamFiles
 
     raise TaskNotFoundError
