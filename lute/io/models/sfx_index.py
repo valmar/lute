@@ -450,3 +450,12 @@ class MergeStreamFilesParameters(TaskParameters):
                 stream_tag: str = Path(stream_file).name.split("_")[0]
                 return stream_tag
         return tag
+
+    @validator("out_file")
+    def validate_out_file(cls, tag: str, values: Dict[str, Any]) -> str:
+        if tag == "":
+            stream_out_file: str = str(
+                Path(values["in_file"]).parent / f"{values['tag'].stream}"
+            )
+            return stream_out_file
+        return tag
