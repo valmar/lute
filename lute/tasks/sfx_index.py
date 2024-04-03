@@ -32,7 +32,9 @@ class MergeStreamFiles(Task):
     def _run(self) -> None:
 
         stream_file_path: Path = Path(self._task_parameters.in_file)
-        stream_file_list: List[Path] = list(stream_file_path.rglob("*.stream"))
+        stream_file_list: List[Path] = list(
+            stream_file_path.rglob(f"{self._task_parameters.tag}_*.stream")
+        )
 
         processed_file_list = [str(stream_file) for stream_file in stream_file_list]
 

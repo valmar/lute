@@ -9,7 +9,8 @@ __all__ = ["IndexCrystFELParameters", "MergeStreamFilesParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 import os
-from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from pydantic import (
     AnyUrl,
@@ -407,15 +408,45 @@ class IndexCrystFELParameters(BaseBinaryParameters):
 
 class MergeStreamFilesParameters(TaskParameters):
 
-    in_file: Optional[str] = Field(
+    in_file: str = Field(
         "",
         description="Root of directory tree storing stream files to merge.",
         flag_type="-",
         rename_param="i",
     )
+
+    tag: Optional[str] = Field(
+        "",
+        description="Tag identifying the stream files to merge.",
+        flag_type="-",
+        rename_param="t",
+    )
+
     out_file: str = Field(
         "",
         description="Path to merged output stream file.",
         flag_type="-",
         rename_param="o",
     )
+
+    @validator("in_file")
+    def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
+        if in_file == "":
+            stream_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "out_file"
+            )
+            if stream_file:
+                stream_dir: str = str(Path(stream_file).parent)
+                return stream_dir
+        return in_file
+
+    @validator("tag")
+    def validate_tag(cls, tag: str, values: Dict[str, Any]) -> str:
+        if tag == "":
+            stream_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "out_file"
+            )
+            if stream_file:
+                stream_tag: str = Path(stream_file).name.split("_")[0]
+                return stream_tag
+        return tag
