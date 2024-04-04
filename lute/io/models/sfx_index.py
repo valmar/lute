@@ -5,24 +5,25 @@ Classes:
         CrystFEL's `indexamajig`.
 """
 
-__all__ = ["IndexCrystFELParameters"]
+__all__ = ["IndexCrystFELParameters", "ConcatenateStreamFilesParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 import os
-from typing import Union, List, Optional, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from pydantic import (
     AnyUrl,
-    PositiveInt,
-    PositiveFloat,
-    NonNegativeInt,
     Field,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
     conint,
     validator,
 )
 
-from .base import BaseBinaryParameters
 from ..db import read_latest_db_entry
+from .base import BaseBinaryParameters, TaskParameters
 
 
 class IndexCrystFELParameters(BaseBinaryParameters):
@@ -403,3 +404,52 @@ class IndexCrystFELParameters(BaseBinaryParameters):
             fname: str = f"{expmt}_r{run:04d}.stream"
             return f"{work_dir}/{fname}"
         return out_file
+
+
+class ConcatenateStreamFilesParameters(TaskParameters):
+
+    in_file: str = Field(
+        "",
+        description="Root of directory tree storing stream files to merge.",
+    )
+
+    tag: Optional[str] = Field(
+        "",
+        description="Tag identifying the stream files to merge.",
+    )
+
+    out_file: str = Field(
+        "",
+        description="Path to merged output stream file.",
+    )
+
+    @validator("in_file")
+    def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
+        if in_file == "":
+            stream_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "out_file"
+            )
+            if stream_file:
+                stream_dir: str = str(Path(stream_file).parent)
+                return stream_dir
+        return in_file
+
+    @validator("tag")
+    def validate_tag(cls, tag: str, values: Dict[str, Any]) -> str:
+        if tag == "":
+            stream_file: Optional[str] = read_latest_db_entry(
+                f"{values['lute_config'].work_dir}", "IndexCrystFEL", "out_file"
+            )
+            if stream_file:
+                stream_tag: str = Path(stream_file).name.split("_")[0]
+                return stream_tag
+        return tag
+
+    @validator("out_file")
+    def validate_out_file(cls, tag: str, values: Dict[str, Any]) -> str:
+        if tag == "":
+            stream_out_file: str = str(
+                Path(values["in_file"]).parent / f"{values['tag'].stream}"
+            )
+            return stream_out_file
+        return tag
