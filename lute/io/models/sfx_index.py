@@ -5,7 +5,7 @@ Classes:
         CrystFEL's `indexamajig`.
 """
 
-__all__ = ["IndexCrystFELParameters", "MergeStreamFilesParameters"]
+__all__ = ["IndexCrystFELParameters", "ConcatenateStreamFilesParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 import os

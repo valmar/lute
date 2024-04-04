@@ -37,10 +37,10 @@ class ConcatenateStreamFiles(Task):
         )
 
         processed_file_list = [str(stream_file) for stream_file in stream_file_list]
-       
+
         msg: Message = Message(
             contents=f"Merging following stream files: {processed_file_list} into "
-            f"{self._task_parameters.out_file}"",
+            f"{self._task_parameters.out_file}",
         )
         self._report_to_executor(msg)
 
