@@ -411,22 +411,16 @@ class MergeStreamFilesParameters(TaskParameters):
     in_file: str = Field(
         "",
         description="Root of directory tree storing stream files to merge.",
-        flag_type="-",
-        rename_param="i",
     )
 
     tag: Optional[str] = Field(
         "",
         description="Tag identifying the stream files to merge.",
-        flag_type="-",
-        rename_param="t",
     )
 
     out_file: str = Field(
         "",
         description="Path to merged output stream file.",
-        flag_type="-",
-        rename_param="o",
     )
 
     @validator("in_file")
