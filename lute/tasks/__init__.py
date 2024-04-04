@@ -61,9 +61,9 @@ def import_task(task_name: str) -> Type[Task]:
 
         return FindPeaksPyAlgos
 
-    if task_name == "MergeStreamFiles":
-        from .sfx_index import MergeStreamFiles
+    if task_name == "ConcatenateStreamFiles":
+        from .sfx_index import ConcatenateStreamFiles
 
-        return MergeStreamFiles
+        return ConcatenateStreamFiles
 
     raise TaskNotFoundError

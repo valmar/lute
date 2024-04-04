@@ -406,7 +406,7 @@ class IndexCrystFELParameters(BaseBinaryParameters):
         return out_file
 
 
-class MergeStreamFilesParameters(TaskParameters):
+class ConcatenateStreamFilesParameters(TaskParameters):
 
     in_file: str = Field(
         "",

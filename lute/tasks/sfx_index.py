@@ -2,10 +2,10 @@
 Classes for indexing tasks in SFX.
 
 Classes:
-    MergeStreamFIles: task that merges multiple stream files into a single file.
+    ConcatenateStreamFIles: task that merges multiple stream files into a single file.
 """
 
-__all__ = ["MergeStreamFiles"]
+__all__ = ["ConcatenateStreamFiles"]
 __author__ = "Valerio Mariani"
 
 import shutil
@@ -21,7 +21,7 @@ from lute.io.models.base import *
 from lute.tasks.task import *
 
 
-class MergeStreamFiles(Task):
+class ConcatenateStreamFiles(Task):
     """
     Task that merges stream files located within a directory tree.
     """
@@ -48,5 +48,6 @@ class MergeStreamFiles(Task):
         with open(self._task_parameters.out_file, "wb") as wfd:
             infile: Path
             for infile in stream_file_list:
+                fd: BinaryIO
                 with open(infile, "rb") as fd:
                     shutil.copyfileobj(fd, wfd)
