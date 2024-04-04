@@ -37,11 +37,12 @@ class MergeStreamFiles(Task):
         )
 
         processed_file_list = [str(stream_file) for stream_file in stream_file_list]
-
-        print(
-            f"Merging following stream files: {processed_file_list} into "
-            f"{self._task_parameters.out_file}"
+       
+        msg: Message = Message(
+            contents=f"Merging following stream files: {processed_file_list} into "
+            f"{self._task_parameters.out_file}"",
         )
+        self._report_to_executor(msg)
 
         wfd: BinaryIO
         with open(self._task_parameters.out_file, "wb") as wfd:
