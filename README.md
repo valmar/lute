@@ -1,5 +1,5 @@
 # LUTE
-
+[![Docs](https://img.shields.io/badge/Docs-GH_Pages-blue)](https://slac-lcls.github.io/lute/dev)
 ## Description
 `lute`, or `LUTE`, is the LCLS Unified Task Executor - an automated workflow package for running analysis pipelines at SLAC's LCLS. This project is the next iteration of [btx](https://github.com/lcls-users/btx), and is still in very early stages of development. `btx` is still maintained and should be used until further notice.
 
@@ -90,6 +90,8 @@ my_var: Union[str, int] = get_str_or_int()
 ```
 The `typing` module contains many other useful features for type hint support.
 
+Note that it is possible to use `from __future__ import annotations` to enable the use of these features. It is a breaking change and is used on a module-by-module basis, please investigate if it applies to your use case.
+
 
 ### Commit Messages
 Inspired by `pcdshub` repositories, in turn following [NumPy conventions](https://numpy.org/doc/stable/dev/development_workflow.html#writing-the-commit-message), all commit messages should ideally be prefixed by a three letter acronym. Each of these acronyms has a specific meaning, making it easy to discern at a glance what the intended purpose of the commit is (bug fix, new feature, etc.). Pull (merge) request titles, and origin branches, should use the same acronyms. The following acronyms are in use:
@@ -107,7 +109,9 @@ Inspired by `pcdshub` repositories, in turn following [NumPy conventions](https:
 ### Class and Object Naming Conventions
 
 ### Style, Formatting, Linting
-This repository uses [Black](https://black.readthedocs.io/en/stable/) for formatting of Python code. Pre-commit hooks will be setup shortly to facilitate compliance with the formatting rules.
+This repository uses [Black](https://black.readthedocs.io/en/stable/) for formatting of Python code. [Ruff](https://docs.astral.sh/ruff/) is used for linting with flake8 rules, and [mypy](https://mypy-lang.org/) for type checking.
+
+Github actions implement checks for compliance. Formatting changes are auto-committed.
 
 ### Debugging Code
 Temporary debugging code should **not** be commited to the repository. E.g., extraneous `print` statements, etc, which are added when fixing a bug. Nonetheless, a selection of permanent debugging options may be included in the code provided they can be disabled when not running in debug mode. For standard operation, this package should be run using the `-O` flag which disables `assert` statements and sets the constant `__debug__ = False`. Without that flag, the package is considered to be running in "debug mode". As such, to include debug related code, please use a construction similar to the following:

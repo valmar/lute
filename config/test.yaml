@@ -1,7 +1,8 @@
 %YAML 1.3
 ---
 title: "LUTE Task Configuration" # Include experiment description if desired
-experiment: "EXPL10000"
+experiment: "{{ $EXPERIMENT }}"
+run: "{{ $RUN }}"
 date: "2023/10/25"
 lute_version: 0.1      # Do not be change unless need to force older version
 task_timeout: 600
@@ -32,80 +33,121 @@ SubmitSMD:
   # Producer variables. These are substituted into the producer to run specific
   # data reduction algorithms. Uncomment and modify as needed.
   # If you prefer to modify the producer file directly, leave commented.
-  detnames: []
-  epicsPV: []
-  ttCalib: []
-  getROIs:
-    jungfrau1M:
-      ROIs: [[[1, 2], [157, 487], [294, 598]]]
-      writeArea: True
-      thresADU: None
-  getAzIntParams:
-    Rayonix:
-      eBeam: 18
-      center: [87526.79161840, 92773.3296889500]
-      dis_to_sam: 80.0
-      tx: 0
-      ty: 0
-  getAzIntPyFAIParams:
-    Rayonix:
-      pix_size: 176e-6
-      ai_kwargs:
-        dist: 1
-        poni1: 960 * 1.76e-4
-        poni2: 960 * 1.76e-4
-      npts: 512
-      int_units: "2th_deg"
-      return2d: False
-  getPhotonsParams:
-    jungfrau1M:
-      ADU_per_photon: 9.5
-      thresADU: 0.8
-  getDropletParams:
-    epix_1:
-      threshold: 5
-      thresholdLow: 5
-      thresADU: 60
-      useRms: True
-      nData: 1e5
-  getDroplet2Photons:
-    epix_alc1:
-      droplet:
-        threshold: 10
-        thresholdLow: 3
-        thresADU: 10
-        useRms: True
-      d2p:
-        aduspphot: 162
-        mask: np.load('path_to_mask.npy')
-        cputime: True
-      nData: 3e4
-  getSvdParams:
-    acq_0:
-      basis_file: None
-      n_pulse: 1
-      delay: None
-      return_reconstructed: True
-  getAutocorrParams:
-    epix_2:
-      mask: "/sdf/home/e/example/dataAna/mask_epix.npy"
-      thresAdu: [72.0, 1.0e6]
-      save_range: [70, 50]
-      save_lineout: True
+  # Beginning with `getROIs`, you will need to modify the first entry to be a
+  # detector. This detector MUST MATCH one of the detectors in `detnames`.
+  # In the future this will be automated. If you have multiple detectors you can
+  # add them with their own set of parameters.
+  #detnames: []
+  #epicsPV: []
+  #ttCalib: []
+  # Provide detector image sum algorithms.
+  # If detSumAlgos is not defined, it will default to calib, calib_dropped and
+  # calib_dropped_square for every detector. You can add processing algorithms for
+  # single detectors (e.g. epix10k2M or Rayonix) as below, or add algorithms which
+  # will apply to every detector defined in detnames by placing them under "all"
+  #detSumAlgos:
+  #  all:
+  #    - "calib"
+  #    - "calib_dropped"
+  #    - "calib_dropped_square"
+  #    - "calib_thresADU1"
+  #  epix10k2M:
+  #    - "calib_thresADU5"
+  #    - "calib_max"
+  #  Rayonix:
+  #    - "calib_skipFirst_thresADU1"
+  #    - "calib_skipFirst_max"
+  #getROIs:
+  #  jungfrau1M:   # Change to detector name
+  #    ROIs: [[[1, 2], [157, 487], [294, 598]]]
+  #    writeArea: True   # Whether to save ROI, if False, save sum but not img.
+  #    thresADU: None
+  #getAzIntParams:
+  #  Rayonix:
+  #    eBeam: 18
+  #    center: [87526.79161840, 92773.3296889500]
+  #    dis_to_sam: 80.0
+  #    tx: 0
+  #    ty: 0
+  #getAzIntPyFAIParams:
+  #  Rayonix:
+  #    pix_size: 176e-6
+  #    ai_kwargs:
+  #      dist: 1
+  #      poni1: 960 * 1.76e-4
+  #      poni2: 960 * 1.76e-4
+  #    npts: 512
+  #    int_units: "2th_deg"
+  #    return2d: False
+  #getPhotonsParams:
+  #  jungfrau1M:
+  #    ADU_per_photon: 9.5
+  #    thresADU: 0.8
+  #getDropletParams:
+  #  epix_1:
+  #    threshold: 5
+  #    thresholdLow: 5
+  #    thresADU: 60
+  #    useRms: True
+  #    nData: 1e5
+  #getDroplet2Photons:
+  #  epix_alc1:
+  #    droplet:
+  #      threshold: 10
+  #      thresholdLow: 3
+  #      thresADU: 10
+  #      useRms: True
+  #    d2p:
+  #      aduspphot: 162
+  #      mask: np.load('path_to_mask.npy')
+  #      cputime: True
+  #    nData: 3e4
+  #getSvdParams:
+  #  acq_0:
+  #    basis_file: None
+  #    n_pulse: 1
+  #    delay: None
+  #    return_reconstructed: True
+  #getAutocorrParams:
+  #  epix_2:
+  #    mask: "/sdf/home/e/example/dataAna/mask_epix.npy"
+  #    thresAdu: [72.0, 1.0e6]
+  #    save_range: [70, 50]
+  #    save_lineout: True
 
 
-
-# FindOverlapXSS Configuration
-FindOverlapXSS:
+AnalyzeSmallDataXSS:
   # Detector selection - if left as "", will attempt to find a default
-  exp_config:
-    det_name: "Rayonix" # Detector to azimuthally integrate
-    ipm_var: "ipm_dg2" # ipm to use for x-ray intensity filtering
-    scan_var: "lxt"    # Scanned motor to use for overlap finding
+  smd_path: "/sdf/data/lcls/ds/xcs/xcsx1010322/hdf5/smalldata/xcsx1010322_Run0008.h5"
+  xss_detname: "epix10k2M"
+  ipm_var: "ipm5/sum" # ipm to use for x-ray intensity filtering
+  scan_var:
+    - "lxt"
+    - "lens_v"
+    - "lens_h"
   # Thresholds used for data filtering
   thresholds:
     min_Iscat: 10      # Minimum integrated scattering intensity
     min_ipm: 1000      # Minimum x-ray intensity at selected ipm
+
+AnalyzeSmallDataXAS:
+  # Detector selection - if left as "", will attempt to find a default
+  #smd_path: "/sdf/data/lcls/ds/xcs/xcsl1018322/hdf5/smalldata/xcsl1018322_Run0016.h5" # lxt_fast
+  smd_path: "/sdf/data/lcls/ds/xcs/xcsl1018322/hdf5/smalldata/xcsl1018322_Run0327.h5" # TR-XAS (ccm)
+  smd_path: "/sdf/data/lcls/ds/xcs/xcsl1018322/hdf5/smalldata/xcsl1018322_Run0018.h5" # lxe_opa
+  xas_detname: "epix_2"
+  xss_detname: "epix10k2M"
+  ipm_var: "ipm5/sum" # ipm to use for x-ray intensity filtering
+  scan_var:
+    - "lxt"
+    - "lxe_opa"
+    - "lxt_fast"
+  ccm: "epics/ccm_E"
+  ccm_set: "epicsUser/ccm_E_setpoint"
+  # Thresholds used for data filtering
+  thresholds:
+    min_Iscat: 10      # Minimum integrated scattering intensity
+    min_ipm: 500       # Minimum x-ray intensity at selected ipm
 
 Test:
   float_var: 0.01
@@ -127,31 +169,35 @@ TestSocket:
   array_size: 8000 # Size of arrays to send. 8000 floats ~ 6.4e4
   num_arrays: 10 # Number of arrays to send.
 
-+FindPeaksPyAlgos:
-+    outdir: ""
-+    n_events: 100
-+    det_name: "Rayonix"
-+    event_receiver: "evr0"
-+    tag: "red"
-+    event_logic: false
-+    psana_mask: false
-+    mask_file: null
-+    min_peaks: 10
-+    max_peaks: 2048
-+    npix_min: 2
-+    npix_max: 30
-+    amax_thr: 40
-+    atot_thr: 180
-+    son_min: 3.0
-+    peak_rank: 3
-+    r0: 3.0
-+    dr: 2.0
-+    nsigm: 10.0
-+    compression:
-+        compressor: "sz3"
-+        abs_error: 10.0
-+        bin_size: 2
-+        roi_window_size: 9
+TestMultiNodeCommunication:
+  send_obj: "plot" # Either "plot" or "array". Type of object to send
+  arr_size: 5      # Size of the array if sending array
+
+FindPeaksPyAlgos:
+    outdir: ""
+    n_events: 100
+    det_name: "Rayonix"
+    event_receiver: "evr0"
+    tag: "red"
+    event_logic: false
+    psana_mask: false
+    mask_file: null
+    min_peaks: 10
+    max_peaks: 2048
+    npix_min: 2
+    npix_max: 30
+    amax_thr: 40
+    atot_thr: 180
+    son_min: 3.0
+    peak_rank: 3
+    r0: 3.0
+    dr: 2.0
+    nsigm: 10.0
+    compression:
+        compressor: "sz3"
+        abs_error: 10.0
+        bin_size: 2
+        roi_window_size: 9
 
 IndexCrystFEL:
   #in_file: ""            # Location of a `.lst` file listing CXI files
@@ -164,12 +210,90 @@ IndexCrystFEL:
   profile: True
   no_revalidate: True
 
+IndexCCTBXXFEL:
+  #phil_file: ...
+  #in_file: ...
+  # Comment out data_spec if providing one
+  # Make sure in_file is appropriately set in that case.
+  data_spec:
+    experiment: "{{ experiment }}"
+    run: "{{ run }}"
+    detector_address: "Rayonix"
+    wavelength_offset: -0.004414643434400234
+    spectrum_eV_per_pixel: 0.07523816551020232
+    spectrum_eV_offset: 9723.778479641995
+    rayonix.bin_size: 4
+
+  # Begin template parameters for .phil file
+  # Comment out to avoid re-writing .phil
+  phil_parameters:
+    #input_reference_geometry: ""
+    #geometry_detector_panel_origin: [0, 0, 0]
+    #output_output_dir: "..."
+    output_composite_output: true
+    #output_logging_dir: "..."
+    dispatch_index: true
+    dispatch_refine: true
+    dispatch_integrate: true
+    mp_mpi_method: "mpi" # "*multiprocessing sge lsf pbs mpi"
+    spotfinder_threshold_dispersion_gain: 1.6
+    spotfinder_threshold_dispersion_sigma_bkgnd: 2
+    spotfinder_threshold_dispersion_sigma_strong: 2
+    spotfinder_threshold_dispersion_global_thresh: 10
+    spotfinder_threshold_dispersion_kernel_size: [6, 6]
+    spotfinder_filter_min_spot_size: 3
+    spotfinder_filter_d_min: 3
+    indexing_stills_refine_candidates_with_known_symmetry: true
+    indexing_stills_refine_all_candidates: false
+    #indexing_known_symmetry_space_group: "P 41 21 2"
+    #indexing_known_symmetry_unit_cell: "140 140 140 90 90 90"
+    integration_background_simple_outlier_plane_n_sigma: 10
+    integration_summation_detector_gain: 1.0
+    profile_gaussian_rs_centroid_definition: "com"
+    #refinement_reflections_outlier_algorithm: "..."
+
 MergePartialator:
   #in_file: ""
   #out_file: ""
   #model: "unity"
   #niter: 1
   symmetry: "mmm"
+
+MergeCCTBXXFEL:
+  #phil_file: ...
+  # Begin template parameters for .phil file
+  # Comment out to avoid re-writing .phil
+  phil_parameters:
+    input_path: "path/to/input"
+    input_experiments_suffix: "_integrated.expt"
+    input_reflections_suffix: "_integrated.refl"
+    input_parallel_file_load_method: "uniform"
+    filter_algorithm: "unit_cell"
+    filter_unit_cell_algorithm: "cluster"
+    filter_unit_cell_cluster_covariance_file: "..."
+    filter_unit_cell_cluster_covariance_component: 0
+    filter_unit_cell_cluster_covariance_mahalanobis: 5.0
+    filter_outlier_min_corr: -1.0
+    select_algorithm: "significance_filter"
+    select_significance_filter_sigma: 0.1
+    scaling_model: ""
+    scaling_resolution_scalar: 0.993420862158964
+    postrefinement_enable: true
+    postrefinement_algorithm: "rs"
+    merging_d_min: 3
+    merging_merge_anomalous: false
+    merging_set_average_unit_cell: true
+    merging_error_model: "ev11"
+    statistics_n_bins: 20
+    statistics_report_ML: true
+    statistics_cciso_mtz_file: ""
+    statistics_cciso_mtz_column_F: "F" # "fobs"
+    output_prefix: ""
+    output_output_dir: ""
+    output_tmp_dir: ""
+    output_do_timing: true
+    output_log_level: true
+    parallel_a2a: 1
 
 CompareHKL:
   #in_files: ""

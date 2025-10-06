@@ -6,24 +6,43 @@ Classes:
     ThirdPartyTask: Class to run a third-party executable binary as a `Task`.
 """
 
-__all__ = ["Task", "TaskResult", "TaskStatus", "DescribedAnalysis", "ThirdPartyTask"]
+__all__ = ["Task", "ThirdPartyTask"]
 __author__ = "Gabriel Dorlhiac"
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Union, Type, TextIO
+from typing import Any, Dict, List, Optional, TextIO, Type, Union, TYPE_CHECKING
 import os
 import warnings
 import signal
 
-from ..io.models.base import (
-    TaskParameters,
-    TemplateParameters,
-    TemplateConfig,
-    AnalysisHeader,
+import lute.execution.subprocess_utils
+
+if TYPE_CHECKING or lute.execution.subprocess_utils.USE_PYDANTIC_MODELS:
+    from lute.io.models.base import (
+        TaskParameters,
+        ThirdPartyParameters,
+        TemplateParameters,
+        TemplateConfig,
+        AnalysisHeader,
+    )
+else:
+    from lute.io.parameters import (
+        TaskParameters,
+        ThirdPartyParameters,
+        TemplateParameters,
+        TemplateConfig,
+        AnalysisHeader,
+    )
+from lute.execution.ipc import (
+    Message,
+    PipeCommunicator,
+    SocketCommunicator,
+    Communicator,
 )
-from ..execution.ipc import *
-from .dataclasses import *
+from lute.execution.debug_utils import LUTE_DEBUG_EXIT
+from lute.io.parameters import RowIds
+from lute.tasks.dataclasses import TaskParametersDBReference, TaskResult, TaskStatus
 
 if __debug__:
     warnings.simplefilter("default")
@@ -57,7 +76,13 @@ class Task(ABC):
         name (str): The name of the Task.
     """
 
-    def __init__(self, *, params: TaskParameters) -> None:
+    def __init__(
+        self,
+        *,
+        params: TaskParameters,
+        use_mpi: bool = False,
+        row_ids: Optional[RowIds] = None,
+    ) -> None:
         """Initialize a Task.
 
         Args:
@@ -65,6 +90,17 @@ class Task(ABC):
                 the analysis task. These are NOT related to execution parameters
                 (number of cores, etc), except, potentially, in case of binary
                 executable sub-classes.
+
+            use_mpi (bool): Whether this Task requires the use of MPI.
+                This determines the behaviour and timing of certain signals
+                and ensures appropriate barriers are placed to not end
+                processing until all ranks have finished.
+
+            row_ids (Optional[RowIds]): If provided the parameter object was stored
+                by the Task layer. Instead of sending a `TaskParameters` object, a
+                set of row_ids will be sent. This is because the Executor does not
+                know how the `lute.io.parameters.TaskParameters` was constructed,
+                so with the RowIds it will be reconstruct it itself.
         """
         self.name: str = str(type(self)).split("'")[1].split(".")[-1]
         self._result: TaskResult = TaskResult(
@@ -74,8 +110,32 @@ class Task(ABC):
             payload="",
         )
         self._task_parameters: TaskParameters = params
+        if (
+            hasattr(self._task_parameters.Config, "result_from_params")
+            and self._task_parameters.Config.result_from_params is not None
+        ):
+            object.__setattr__(
+                self._task_parameters,
+                "_result_from_params",
+                self._task_parameters.Config.result_from_params,
+            )
         timeout: int = self._task_parameters.lute_config.task_timeout
         signal.setitimer(signal.ITIMER_REAL, timeout)
+
+        run_directory: Optional[str] = self._task_parameters.Config.run_directory
+        if run_directory is not None:
+            try:
+                os.chdir(run_directory)
+            except FileNotFoundError:
+                warnings.warn(
+                    (
+                        f"Attempt to change to {run_directory}, but it is not found!\n"
+                        f"Will attempt to run from {os.getcwd()}. It may fail!"
+                    ),
+                    category=UserWarning,
+                )
+        self._use_mpi: bool = use_mpi
+        self._row_ids: Optional[RowIds] = row_ids
 
     def run(self) -> None:
         """Calls the analysis routines and any pre/post task functions.
@@ -123,17 +183,53 @@ class Task(ABC):
 
     def _signal_start(self) -> None:
         """Send the signal that the Task will begin shortly."""
-        start_msg: Message = Message(
-            contents=self._task_parameters, signal="TASK_STARTED"
-        )
+        msg_contents: Union[TaskParameters, TaskParametersDBReference]
+        if self._row_ids is not None:
+            msg_contents = TaskParametersDBReference(
+                db_dir=self._task_parameters.lute_config.work_dir, row_ids=self._row_ids
+            )
+        else:
+            msg_contents = self._task_parameters
+        start_msg: Message = Message(contents=msg_contents, signal="TASK_STARTED")
         self._result.task_status = TaskStatus.RUNNING
-        self._report_to_executor(start_msg)
+        if self._use_mpi:
+            from mpi4py import MPI
+
+            comm: MPI.Intracomm = MPI.COMM_WORLD
+            rank: int = comm.Get_rank()
+            comm.Barrier()
+            if rank == 0:
+                self._report_to_executor(start_msg)
+        else:
+            self._report_to_executor(start_msg)
+
+        # We stop process here so Executor can do any tasklet work if needed
+        if os.getenv("LUTE_CONFIGPATH") is not None:
+            # Guard w/ environment variable that is set only by Executor - don't
+            # SIGSTOP if Task is running without Executor
+            if self._use_mpi:
+                comm = MPI.COMM_WORLD
+                rank = comm.Get_rank()
+                if rank == 0:
+                    os.kill(os.getppid(), signal.SIGSTOP)
+                comm.Barrier()
+            else:
+                os.kill(os.getpid(), signal.SIGSTOP)
 
     def _signal_result(self) -> None:
         """Send the signal that results are ready along with the results."""
         signal: str = "TASK_RESULT"
         results_msg: Message = Message(contents=self.result, signal=signal)
-        self._report_to_executor(results_msg)
+        if self._use_mpi:
+            from mpi4py import MPI
+
+            comm: MPI.Intracomm = MPI.COMM_WORLD
+            rank: int = comm.Get_rank()
+            comm.Barrier()
+            if rank == 0:
+                self._report_to_executor(results_msg)
+        else:
+            self._report_to_executor(results_msg)
         time.sleep(0.1)
 
     def _report_to_executor(self, msg: Message) -> None:
@@ -151,7 +247,9 @@ class Task(ABC):
         else:
             communicator = SocketCommunicator()
 
+        communicator.delayed_setup()
         communicator.write(msg)
+        communicator.clear_communicator()
 
     def clean_up_timeout(self) -> None:
         """Perform any necessary cleanup actions before exit if timing out."""
@@ -161,7 +259,7 @@ class Task(ABC):
 class ThirdPartyTask(Task):
     """A `Task` interface to analysis with binary executables."""
 
-    def __init__(self, *, params: TaskParameters) -> None:
+    def __init__(self, *, params: ThirdPartyParameters) -> None:
         """Initialize a Task.
 
         Args:
@@ -171,13 +269,23 @@ class ThirdPartyTask(Task):
                 it (as would be done via command line). The binary is included
                 with the parameter `executable`. All other parameter names are
                 assumed to be the long/extended names of the flag passed on the
-                command line:
+                command line by default:
                     * `arg_name = 3` is converted to `--arg_name 3`
                 Positional arguments can be included with `p_argN` where `N` is
                 any integer:
                     * `p_arg1 = 3` is converted to `3`
+
+                Note that it is NOT recommended to rely on this default behaviour
+                as command-line arguments can be passed in many ways. Refer to
+                the dcoumentation at
+                https://slac-lcls.github.io/lute/tutorial/new_task/
+                under "Speciyfing a TaskParameters Model for your Task" for more
+                information on how to control parameter parsing from within your
+                TaskParameters model definition.
         """
         super().__init__(params=params)
+        if not hasattr(self._task_parameters, "executable"):
+            raise RuntimeError("ThirdPartyTask must have executable defined!")
         self._cmd = self._task_parameters.executable
         self._args_list: List[str] = [self._cmd]
         self._template_context: Dict[str, Any] = {}
@@ -212,6 +320,9 @@ class ThirdPartyTask(Task):
         """
         from jinja2 import Environment, FileSystemLoader, Template
 
+        if not hasattr(self._task_parameters, "lute_template_cfg"):
+            raise RuntimeError("Missing lute_template_cfg! Cannot compile template!")
+
         out_file: str = self._task_parameters.lute_template_cfg.output_path
         template_name: str = self._task_parameters.lute_template_cfg.template_name
 
@@ -222,7 +333,7 @@ class ThirdPartyTask(Task):
                 "LUTE_PATH is None in Task process! Using relative path for templates!",
                 category=UserWarning,
             )
-            template_dir: str = "../../config/templates"
+            template_dir = "../../config/templates"
         else:
             template_dir = f"{lute_path}/config/templates"
         environment: Environment = Environment(loader=FileSystemLoader(template_dir))
@@ -250,22 +361,23 @@ class ThirdPartyTask(Task):
         identified.
         """
         super()._pre_run()
-        full_schema: Dict[str, Union[str, Dict[str, Any]]] = (
-            self._task_parameters.schema()
-        )
+        full_schema: Dict[str, Any] = self._task_parameters.schema()
         short_flags_use_eq: bool
         long_flags_use_eq: bool
         if hasattr(self._task_parameters.Config, "short_flags_use_eq"):
-            short_flags_use_eq: bool = self._task_parameters.Config.short_flags_use_eq
-            long_flags_use_eq: bool = self._task_parameters.Config.long_flags_use_eq
+            short_flags_use_eq = self._task_parameters.Config.short_flags_use_eq
         else:
             short_flags_use_eq = False
+
+        if hasattr(self._task_parameters.Config, "long_flags_use_eq"):
+            long_flags_use_eq = self._task_parameters.Config.long_flags_use_eq
+        else:
             long_flags_use_eq = False
         for param, value in self._task_parameters.dict().items():
             # Clunky test with __dict__[param] because compound model-types are
             # converted to `dict`. E.g. type(value) = dict not AnalysisHeader
             if (
-                param == "executable"
+                param in ("executable", "_result_from_params")
                 or value is None  # Cannot have empty values in argument list for execvp
                 or value == ""  # But do want to include, e.g. 0
                 or isinstance(self._task_parameters.__dict__[param], TemplateConfig)
@@ -305,7 +417,10 @@ class ThirdPartyTask(Task):
                     self._args_list.append(f"{constructed_flag}")
             else:
                 warnings.warn(
-                    "Model parameters should be defined using Field(...,flag_type='') in the future.",
+                    (
+                        f"Model parameters should be defined using Field(...,flag_type='')"
+                        f" in the future.  Parameter: {param}"
+                    ),
                     category=PendingDeprecationWarning,
                 )
                 if len(param) == 1:  # Single-dash flags
@@ -341,6 +456,8 @@ class ThirdPartyTask(Task):
             time.sleep(0.1)
             msg: Message = Message(contents=self._formatted_command())
             self._report_to_executor(msg)
+        LUTE_DEBUG_EXIT("LUTE_DEBUG_BEFORE_TPP_EXEC")
+        self._setup_env()
         os.execvp(file=self._cmd, args=self._args_list)
 
     def _formatted_command(self) -> str:
@@ -355,3 +472,12 @@ class ThirdPartyTask(Task):
         signal: str = "NO_PICKLE_MODE"
         msg: Message = Message(signal=signal)
         self._report_to_executor(msg)
+
+    def _setup_env(self) -> None:
+        new_env: Dict[str, str] = {}
+        for key, value in os.environ.items():
+            if "LUTE_TENV_" in key:
+                # Set if using a custom environment
+                new_key: str = key[10:]
+                new_env[new_key] = value
+        os.environ.update(new_env)

@@ -1,7 +1,7 @@
 """Models for structure solution in serial femtosecond crystallography.
 
 Classes:
-    DimpleSolveParameters(BaseBinaryParameters): Perform structure solution
+    DimpleSolveParameters(ThirdPartyParameters): Perform structure solution
         using CCP4's dimple (molecular replacement).
 """
 
@@ -9,21 +9,30 @@ __all__ = ["DimpleSolveParameters", "RunSHELXCParameters"]
 __author__ = "Gabriel Dorlhiac"
 
 import os
-from typing import Union, List, Optional, Dict, Any
+from typing import Union, Optional, Dict, Any
 
-from pydantic import Field, validator, PositiveFloat, PositiveInt
+from pydantic import Field, validator, PositiveFloat, PositiveInt, root_validator
 
-from .base import BaseBinaryParameters
-from ..db import read_latest_db_entry
+from lute.io.models.base import ThirdPartyParameters
+from lute.io.db import read_latest_db_entry
 
 
-class DimpleSolveParameters(BaseBinaryParameters):
+class DimpleSolveParameters(ThirdPartyParameters):
     """Parameters for CCP4's dimple program.
 
     There are many parameters. For more information on
     usage, please refer to the CCP4 documentation, here:
     https://ccp4.github.io/dimple/
     """
+
+    class Config(ThirdPartyParameters.Config):
+        """Identical to super-class Config but includes a result."""
+
+        set_result: bool = True
+        """Whether the Executor should mark a specified parameter as a result."""
+
+        result_from_params: str = ""
+        """Defines a result from the parameters. Use a validator to do so."""
 
     executable: str = Field(
         "/sdf/group/lcls/ds/tools/ccp4-8.0/bin/dimple",
@@ -118,7 +127,9 @@ class DimpleSolveParameters(BaseBinaryParameters):
         rename_param="no-blob-search",
     )
     anode: bool = Field(
-        False, description="Use SHELX/AnoDe to find peaks in the anomalous map."
+        False,
+        description="Use SHELX/AnoDe to find peaks in the anomalous map.",
+        flag_type="--",
     )
     # Run customization
     no_hetatm: bool = Field(
@@ -176,7 +187,7 @@ class DimpleSolveParameters(BaseBinaryParameters):
         rename_param="ItoF-prog",
     )
 
-    @validator("in_file")
+    @validator("in_file", always=True)
     def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
         if in_file == "":
             get_hkl_file: Optional[str] = read_latest_db_entry(
@@ -186,7 +197,7 @@ class DimpleSolveParameters(BaseBinaryParameters):
                 return get_hkl_file
         return in_file
 
-    @validator("out_dir")
+    @validator("out_dir", always=True)
     def validate_out_dir(cls, out_dir: str, values: Dict[str, Any]) -> str:
         if out_dir == "":
             get_hkl_file: Optional[str] = read_latest_db_entry(
@@ -196,8 +207,19 @@ class DimpleSolveParameters(BaseBinaryParameters):
                 return os.path.dirname(get_hkl_file)
         return out_dir
 
+    @root_validator(pre=False)
+    def define_result(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        out_dir: str = values["out_dir"]
+        result: str
+        if out_dir != "":
+            result = f"{out_dir}/final.mtz;{out_dir}/final.pdb"
+        else:
+            result = ""
+        cls.Config.result_from_params = result
+        return values
 
-class RunSHELXCParameters(BaseBinaryParameters):
+
+class RunSHELXCParameters(ThirdPartyParameters):
     """Parameters for CCP4's SHELXC program.
 
     SHELXC prepares files for SHELXD and SHELXE.
@@ -220,7 +242,7 @@ class RunSHELXCParameters(BaseBinaryParameters):
         flag_type="",
     )
 
-    @validator("in_file")
+    @validator("in_file", always=True)
     def validate_in_file(cls, in_file: str, values: Dict[str, Any]) -> str:
         if in_file == "":
             # get_hkl needed to be run to produce an XDS format file...

@@ -12,8 +12,9 @@ Classes:
 """
 
 __all__ = ["JIDSlurmOperator", "RequestOnlyOperator"]
-__author__ = "Fred Poitevin, Murali Shankar"
+__author__ = "Fred Poitevin, Murali Shankar, Gabriel Dorlhiac"
 
+import sys
 import uuid
 import getpass
 import time
@@ -58,14 +59,14 @@ class RequestOnlyOperator(BaseOperator):
                 contains a list of available variables and their description.
         """
         # logger.info(f"Attempting to run at {self.get_location(context)}...")
-        logger.info(f"Attempting to run at S3DF.")
+        logger.info("Attempting to run at S3DF.")
         dagrun_config: Dict[str, Union[str, Dict[str, Union[str, int, List[str]]]]] = (
             context.get("dag_run").conf
         )
         jid_job_definition: Dict[str, str] = {
             "_id": str(uuid.uuid4()),
             "name": self.task_id,
-            "executable": f"myexecutable.sh",
+            "executable": "myexecutable.sh",
             "trigger": "MANUAL",
             "location": dagrun_config.get("ARP_LOCATION", "S3DF"),
             "parameters": "--partition=milano --account=lcls:data",
@@ -118,16 +119,108 @@ class JIDSlurmOperator(BaseOperator):
     def __init__(
         self,
         user: str = getpass.getuser(),
-        poke_interval: float = 30.0,
+        poke_interval: float = 5.0,
         max_cores: Optional[int] = None,
+        max_nodes: Optional[int] = None,
+        require_partition: Optional[str] = None,
+        custom_slurm_params: str = "",
         *args,
         **kwargs,
     ) -> None:
+        """Runs a LUTE managed Task on the batch nodes.
+
+        Args:
+            user (str): User to run the SLURM job as.
+            poke_interval (float): How frequently to ping the JID for status
+                updates.
+            max_cores (Optional[int]): The maximum number of cores to allow
+                for this job. If more cores are requested in the Airflow context
+                setting this parameter will make sure the job request is capped.
+            max_nodes (Optional[int]): The maximum number of nodes to allow
+                this job to run across. If more nodes are requested, or no node
+                specification is provided this parameter will cap the requested
+                node count. This can be used, e.g. to prevent non-MPI jobs from
+                running on multiple nodes.
+            require_partition (Optional[str]): Force the job to run on a specific
+                partition. Will override the passed partition if it is different.
+            custom_slurm_params (str): If a non-empty string this will replace
+                ALL the SLURM arguments that are passed via Airflow context. If
+                used it therefore MUST contain every needed argument e.g.:
+                     "--partition=<...> --account=<...> --ntasks=<...>"
+        """
         super().__init__(*args, **kwargs)  # Initializes self.task_id
         self.lute_location: str = ""
         self.user: str = user
         self.poke_interval: float = poke_interval
         self.max_cores: Optional[int] = max_cores
+        self.max_nodes: Optional[int] = max_nodes
+        self.require_partition: Optional[str] = require_partition
+        self.lute_task_id: str = kwargs.get("task_id", "")
+        if "." in self.lute_task_id:
+            # In a task_group the group id is prepended to task_id
+            # We want to remove this and only keep the last portion
+            self.lute_task_id = self.lute_task_id.split(".")[-1]
+        self.custom_slurm_params: str = custom_slurm_params
+
+    def _sub_overridable_arguments(self, slurm_param_str: str) -> str:
+        """Overrides certain SLURM arguments given instance options.
+
+        Since the same SLURM arguments are used by default for the entire DAG,
+        individual Operator instances can override some important ones if they
+        are passed at instantiation.
+
+        ASSUMES `=` is used with SLURM arguments! E.g. --ntasks=12, --nodes=0-4
+
+        Args:
+            slurm_param_str (str): Constructed string of DAG SLURM arguments
+                without modification
+        Returns:
+            slurm_param_str (str): Modified SLURM argument string.
+        """
+        # Cap max cores used by a managed Task if that is requested
+        # Only search for part after `=` since this will usually be passed
+        if self.max_cores is not None:
+            pattern: str = r"(?<=\bntasks=)\d+"
+            ntasks: int
+            try:
+                ntasks = int(re.findall(pattern, slurm_param_str)[0])
+                if ntasks > self.max_cores:
+                    slurm_param_str = re.sub(
+                        pattern, f"{self.max_cores}", slurm_param_str
+                    )
+            except IndexError:  # If `ntasks` not passed - 1 is default
+                ntasks = 1
+                slurm_param_str = f"{slurm_param_str} --ntasks={ntasks}"
+
+        # Cap max nodes. Unlike above search for everything, if not present, add it.
+        if self.max_nodes is not None:
+            pattern = r"nodes=\S+"
+            try:
+                _ = re.findall(pattern, slurm_param_str)[0]
+                # Check if present with above. Below does nothing but does not
+                # throw error if pattern not present.
+                slurm_param_str = re.sub(
+                    pattern, f"nodes=0-{self.max_nodes}", slurm_param_str
+                )
+            except IndexError:  # `--nodes` not present
+                slurm_param_str = f"{slurm_param_str} --nodes=0-{self.max_nodes}"
+
+        # Force use of a specific partition
+        if self.require_partition is not None:
+            pattern = r"partition=\S+"
+            try:
+                _ = re.findall(pattern, slurm_param_str)[0]
+                # Check if present with above. Below does nothing but does not
+                # throw error if pattern not present.
+                slurm_param_str = re.sub(
+                    pattern, f"partition={self.require_partition}", slurm_param_str
+                )
+            except IndexError:  # --partition not present. This shouldn't happen
+                slurm_param_str = (
+                    f"{slurm_param_str} --partition={self.require_partition}"
+                )
+
+        return slurm_param_str
 
     def create_control_doc(
         self, context: Dict[str, Any]
@@ -162,27 +255,35 @@ class JIDSlurmOperator(BaseOperator):
         # managed task!
         lute_param_str: str
         if lute_params["debug"]:
-            lute_param_str = f"--taskname {self.task_id} --config {config_path} --debug"
+            lute_param_str = (
+                f"--taskname {self.lute_task_id} --config {config_path} --debug"
+            )
         else:
-            lute_param_str = f"--taskname {self.task_id} --config {config_path}"
+            lute_param_str = f"--taskname {self.lute_task_id} --config {config_path}"
 
-        # slurm_params holds a List[str]
-        slurm_param_str: str = " ".join(dagrun_config.get("slurm_params"))
-        # Cap max cores used by a managed Task if that is requested
-        pattern: str = r"(?<=\bntasks=)\d+"
-        ntasks: int
-        try:
-            ntasks = int(re.findall(pattern, slurm_param_str)[0])
-        except IndexError as err:  # If `ntasks` not passed - 1 is default
-            ntasks = 1
-        if self.max_cores is not None and ntasks > self.max_cores:
-            slurm_param_str = re.sub(pattern, f"{self.max_cores}", slurm_param_str)
+        if "is_daq2" in dagrun_config:
+            if dagrun_config["is_daq2"]:
+                lute_param_str = f"{lute_param_str} --psana2"
+
+        kerb_file: Optional[str] = dagrun_config.get("kerb_file")
+        if kerb_file is not None:
+            lute_param_str = f"{lute_param_str} -K {kerb_file}"
+
+        slurm_param_str: str
+        if self.custom_slurm_params:  # SLURM params != ""
+            slurm_param_str = self.custom_slurm_params
+        else:
+            # slurm_params holds a List[str]
+            slurm_param_str = " ".join(dagrun_config.get("slurm_params"))
+
+            # Make any requested SLURM argument substitutions
+            slurm_param_str = self._sub_overridable_arguments(slurm_param_str)
 
         parameter_str: str = f"{lute_param_str} {slurm_param_str}"
 
         jid_job_definition: Dict[str, str] = {
             "_id": str(uuid.uuid4()),
-            "name": self.task_id,
+            "name": self.lute_task_id,
             "executable": f"{self.lute_location}/launch_scripts/submit_slurm.sh",
             "trigger": "MANUAL",
             "location": dagrun_config.get("ARP_LOCATION", "S3DF"),
@@ -222,12 +323,12 @@ class JIDSlurmOperator(BaseOperator):
             AirflowException: Raised to translate multiple errors into object
                 properly handled by the Airflow server.
         """
-        logger.info(f"{resp.status_code}: {resp.content}")
-        if not resp.status_code in (200,):
+        logger.debug(f"{resp.status_code}: {resp.content}")
+        if resp.status_code not in (200,):
             raise AirflowException(f"Bad response from JID {resp}: {resp.content}")
         try:
             json: Dict[str, Union[str, int]] = resp.json()
-            if not json.get("success", "") in (True,):
+            if json.get("success", "") not in (True,):
                 raise AirflowException(f"Error from JID {resp}: {resp.content}")
             value: Dict[str, Any] = json.get("value")
 
@@ -284,12 +385,12 @@ class JIDSlurmOperator(BaseOperator):
         # Endpoints have the string "{experiment}" in them
         uri = uri.format(experiment=experiment)
 
-        logger.info(f"Calling {uri} with {control_doc}...")
+        logger.debug(f"Calling {uri} with {control_doc}...")
 
         resp: requests.models.Response = requests.post(
             uri, json=control_doc, headers={"Authorization": auth}
         )
-        logger.info(f" + {resp.status_code}: {resp.content.decode('utf-8')}")
+        logger.debug(f" + {resp.status_code}: {resp.content.decode('utf-8')}")
 
         value: Dict[str, Any] = self.parse_response(resp, check_for_error)
 
@@ -304,7 +405,7 @@ class JIDSlurmOperator(BaseOperator):
                 contains a list of available variables and their description.
         """
         # logger.info(f"Attempting to run at {self.get_location(context)}...")
-        logger.info(f"Attempting to run at S3DF.")
+        logger.info("Attempting to run at S3DF.")
         control_doc = self.create_control_doc(context)
         logger.info(control_doc)
         logger.info(f"{self.jid_api_location}/{self.jid_api_endpoints['start_job']}")
@@ -315,7 +416,6 @@ class JIDSlurmOperator(BaseOperator):
         logger.info(f"JobID {msg['tool_id']} successfully submitted!")
 
         jobs: List[Dict[str, Any]] = [msg]
-        time.sleep(10)  # Wait for job to queue.... FIXME
         logger.info("Checking for job completion.")
         while jobs[0].get("status") in ("RUNNING", "SUBMITTED"):
             jobs = self.rpc(
@@ -329,6 +429,21 @@ class JIDSlurmOperator(BaseOperator):
         # Logs out to xcom
         out = self.rpc("job_log_file", jobs[0], context)
         context["task_instance"].xcom_push(key="log", value=out)
+        final_status: str = jobs[0].get("status")
+        logger.info(f"Final status: {final_status}")
+        if final_status in ("FAILED", "EXITED"):
+            # Only DONE indicates success. EXITED may be cancelled or SLURM err
+            logger.error(f"`Task` job marked as {final_status}!")
+            sys.exit(-1)
+
+        failure_messages: List[str] = [
+            "INFO:lute.execution.executor:Task failed with return code:",
+            "INFO:lute.execution.executor:Exiting after Task failure.",
+        ]
+        for msg in failure_messages:
+            if msg in out:
+                logger.error("Logs indicate `Task` failed!")
+                sys.exit(-1)
 
 
 class JIDPlugins(AirflowPlugin):

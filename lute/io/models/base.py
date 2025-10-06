@@ -7,7 +7,7 @@ Classes:
     TaskParameters(BaseSettings): Base class for Task parameters. Subclasses
         specify a model of parameters and their types for validation.
 
-    BaseBinaryParameters(TaskParameters): Base class for Third-party, binary
+    ThirdPartyParameters(TaskParameters): Base class for Third-party, binary
         executable Tasks.
 
     TemplateParameters: Dataclass to represent parameters of binary
@@ -22,12 +22,12 @@ __all__ = [
     "AnalysisHeader",
     "TemplateConfig",
     "TemplateParameters",
-    "BaseBinaryParameters",
+    "ThirdPartyParameters",
 ]
 __author__ = "Gabriel Dorlhiac"
 
 import os
-from typing import Dict, Any, Union
+from typing import Any, Dict, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -36,8 +36,12 @@ from pydantic import (
     Field,
     root_validator,
     validator,
+    PrivateAttr,
 )
 from pydantic.dataclasses import dataclass
+from pydantic.schema import default_ref_template
+
+from lute.io.parameters import LUTE_PARAMETER_CONFIG_KEYS
 
 
 class AnalysisHeader(BaseModel):
@@ -47,10 +51,8 @@ class AnalysisHeader(BaseModel):
         "LUTE Task Configuration",
         description="Description of the configuration or experiment.",
     )
-    experiment: str = Field("EXPX00000", description="Experiment.")
-    run: Union[str, int] = Field(
-        os.environ.get("RUN", ""), description="Data acquisition run."
-    )
+    experiment: str = Field("", description="Experiment.")
+    run: Union[str, int] = Field("", description="Data acquisition run.")
     date: str = Field("1970/01/01", description="Start date of analysis.")
     lute_version: Union[float, str] = Field(
         0.1, description="Version of LUTE used for analysis."
@@ -65,13 +67,42 @@ class AnalysisHeader(BaseModel):
     work_dir: str = Field("", description="Main working directory for LUTE.")
 
     @validator("work_dir", always=True)
-    def validate_work_dir(cls, work_dir: str, values: Dict[str, Any]) -> str:
-        if work_dir == "":
-            work_dir = (
+    def validate_work_dir(cls, directory: str, values: Dict[str, Any]) -> str:
+        work_dir: str
+        if directory == "":
+            std_work_dir = (
                 f"/sdf/data/lcls/ds/{values['experiment'][:3]}/"
                 f"{values['experiment']}/scratch"
             )
+            work_dir = std_work_dir
+        else:
+            work_dir = directory
+        # Check existence and permissions
+        if not os.path.exists(work_dir):
+            raise ValueError(f"Working Directory: {work_dir} does not exist!")
+        if not os.access(work_dir, os.W_OK):
+            # Need write access for database, files etc.
+            raise ValueError(f"Not write access for working directory: {work_dir}!")
+        os.environ["LUTE_WORK_DIR"] = work_dir
         return work_dir
+
+    @validator("run", always=True)
+    def validate_run(
+        cls, run: Union[str, int], values: Dict[str, Any]
+    ) -> Union[str, int]:
+        if run == "":
+            # From Airflow RUN_NUM should have Format "RUN_DATETIME" - Num is first part
+            run_time: str = os.environ.get("RUN_NUM", "")
+            if run_time != "":
+                return int(run_time.split("_")[0])
+        return run
+
+    @validator("experiment", always=True)
+    def validate_experiment(cls, experiment: str, values: Dict[str, Any]) -> str:
+        if experiment == "":
+            arp_exp: str = os.environ.get("EXPERIMENT", "EXPX00000")
+            return arp_exp
+        return experiment
 
 
 class TaskParameters(BaseSettings):
@@ -90,12 +121,104 @@ class TaskParameters(BaseSettings):
     """
 
     class Config:
+        """Configuration for parameters model.
+
+        The Config class holds Pydantic configuration. A number of LUTE-specific
+        configuration has also been placed here.
+
+        Attributes:
+            env_prefix (str): Pydantic configuration. Will set parameters from
+                environment variables containing this prefix. E.g. a model
+                parameter `input` can be set with an environment variable:
+                `{env_prefix}input`, in LUTE's case `LUTE_input`.
+
+            underscore_attrs_are_private (bool): Pydantic configuration. Whether
+                to hide attributes (parameters) prefixed with an underscore.
+
+            copy_on_model_validation (str): Pydantic configuration. How to copy
+                the input object passed to the class instance for model
+                validation. Set to perform a deep copy.
+
+            allow_inf_nan (bool): Pydantic configuration. Whether to allow
+                infinity or NAN in float fields.
+
+            run_directory (Optional[str]): None. If set, it should be a valid
+                path. The `Task` will be run from this directory. This may be
+                useful for some `Task`s which rely on searching the working
+                directory.
+
+            set_result (bool). False. If True, the model has information about
+                setting the TaskResult object from the parameters it contains.
+                E.g. it has an `output` parameter which is marked as the result.
+                The result can be set with a field value of `is_result=True` on
+                a specific parameter, or using `result_from_params` and a
+                validator.
+
+            result_from_params (Optional[str]): None. Optionally used to define
+                results from information available in the model using a custom
+                validator. E.g. use a `outdir` and `filename` field to set
+                `result_from_params=f"{outdir}/{filename}`, etc. Only used if
+                `set_result==True`
+
+            result_summary (Optional[str]): None. Defines a result summary that
+                can be known after processing the Pydantic model. Use of summary
+                depends on the Executor running the Task. All summaries are
+                stored in the database, however. Only used if `set_result==True`
+
+            impl_schemas (Optional[str]). Specifies a the schemas the
+                output/results conform to. Only used if `set_result==True`.
+        """
+
         env_prefix = "LUTE_"
         underscore_attrs_are_private: bool = True
         copy_on_model_validation: str = "deep"
         allow_inf_nan: bool = False
 
-    lute_config: AnalysisHeader = AnalysisHeader()
+        run_directory: Optional[str] = None
+        """Set the directory that the Task is run from."""
+        set_result: bool = False
+        """Whether the Executor should mark a specified parameter as a result."""
+        result_from_params: Optional[str] = None
+        """Defines a result from the parameters. Use a validator to do so."""
+        result_summary: Optional[str] = None
+        """Format a TaskResult.summary from output."""
+        impl_schemas: Optional[str] = None
+        """Schema specification for output result. Will be passed to TaskResult."""
+
+    lute_config: AnalysisHeader
+
+    @classmethod
+    def schema(
+        cls, by_alias: bool = True, ref_template: str = default_ref_template
+    ) -> Dict[str, Any]:
+        """Override the default schema to include Config information."""
+        schema: Dict[str, Any] = super().schema(
+            by_alias=by_alias, ref_template=ref_template
+        )
+        config_doc: Optional[str] = cls.Config.__doc__
+        if config_doc is None:
+            config_doc = "Internal LUTE Configuration objects."
+        config_title: str = "Internal LUTE TaskParameters Configuration Options."
+        config_schema_property: Dict[str, Any] = {
+            "title": config_title,
+            "description": config_doc,
+            "allOf": [{"$ref": "#/definitions/Config"}],
+        }
+        config_schema_definition: Dict[str, Any] = {
+            "title": "Config",
+            "type": "object",
+            "properties": {},
+        }
+        for key, val in vars(cls.Config).items():
+            if key in LUTE_PARAMETER_CONFIG_KEYS:
+                config_defn_entry: Dict[str, Any] = LUTE_PARAMETER_CONFIG_KEYS[key]
+                # Add the actual value as a constant now
+                config_defn_entry["const"] = val
+                config_schema_definition["properties"][key] = config_defn_entry
+        schema["properties"]["Config"] = config_schema_property
+        schema["definitions"]["Config"] = config_schema_definition
+
+        return schema
 
 
 @dataclass
@@ -117,7 +240,7 @@ class TemplateParameters:
     params: Any
 
 
-class BaseBinaryParameters(TaskParameters):
+class ThirdPartyParameters(TaskParameters):
     """Base class for third party task parameters.
 
     Contains special validators for extra arguments and handling of parameters
@@ -125,21 +248,102 @@ class BaseBinaryParameters(TaskParameters):
     """
 
     class Config(TaskParameters.Config):
+        """Configuration for parameters model.
+
+        The Config class holds Pydantic configuration and inherited configuration
+        from the base `TaskParameters.Config` class. A number of values are also
+        overridden, and there are some specific configuration options to
+        ThirdPartyParameters. A full list of options (with TaskParameters options
+        repeated) is described below.
+
+        Attributes:
+            env_prefix (str): Pydantic configuration. Will set parameters from
+                environment variables containing this prefix. E.g. a model
+                parameter `input` can be set with an environment variable:
+                `{env_prefix}input`, in LUTE's case `LUTE_input`.
+
+            underscore_attrs_are_private (bool): Pydantic configuration. Whether
+                to hide attributes (parameters) prefixed with an underscore.
+
+            copy_on_model_validation (str): Pydantic configuration. How to copy
+                the input object passed to the class instance for model
+                validation. Set to perform a deep copy.
+
+            allow_inf_nan (bool): Pydantic configuration. Whether to allow
+                infinity or NAN in float fields.
+
+            run_directory (Optional[str]): None. If set, it should be a valid
+                path. The `Task` will be run from this directory. This may be
+                useful for some `Task`s which rely on searching the working
+                directory.
+
+            set_result (bool). True. If True, the model has information about
+                setting the TaskResult object from the parameters it contains.
+                E.g. it has an `output` parameter which is marked as the result.
+                The result can be set with a field value of `is_result=True` on
+                a specific parameter, or using `result_from_params` and a
+                validator.
+
+            result_from_params (Optional[str]): None. Optionally used to define
+                results from information available in the model using a custom
+                validator. E.g. use a `outdir` and `filename` field to set
+                `result_from_params=f"{outdir}/{filename}`, etc.
+
+            result_summary (Optional[str]): None. Defines a result summary that
+                can be known after processing the Pydantic model. Use of summary
+                depends on the Executor running the Task. All summaries are
+                stored in the database, however.
+
+            impl_schemas (Optional[str]). Specifies a the schemas the
+                output/results conform to. Only used if set_result is True.
+
+            -----------------------
+            ThirdPartyTask-specific:
+
+            extra (str): "allow". Pydantic configuration. Allow (or ignore) extra
+                arguments.
+
+            short_flags_use_eq (bool): False. If True, "short" command-line args
+                are passed as `-x=arg`. ThirdPartyTask-specific.
+
+            long_flags_use_eq (bool): False. If True, "long" command-line args
+                are passed as `--long=arg`. ThirdPartyTask-specific.
+        """
+
         extra: str = "allow"
         short_flags_use_eq: bool = False
         """Whether short command-line arguments are passed like `-x=arg`."""
         long_flags_use_eq: bool = False
         """Whether long command-line arguments are passed like `--long=arg`."""
+        set_result: bool = True
+        """Whether the Executor should mark a specified parameter as a result."""
 
+    _unknown_template_params: Dict[str, Any] = PrivateAttr()
     # lute_template_cfg: TemplateConfig
 
     @root_validator(pre=False)
-    def extra_fields_to_thirdparty(cls, values):
+    def extra_fields_to_thirdparty(cls, values: Dict[str, Any]):
+        cls._unknown_template_params = {}
+        param_schema_template: Dict[str, Any] = {
+            "title": "",
+            "description": "Unknown template parameters.",
+            "type": "object",
+            "properties": {
+                "params": "",
+                "type": "object",
+            },
+        }
+        new_values: Dict[str, Any] = {}
         for key in values:
             if key not in cls.__fields__:
-                values[key] = TemplateParameters(values[key])
-
-        return values
+                new_values[key] = TemplateParameters(params=values[key])
+                param_schema: Dict[str, Any] = param_schema_template.copy()
+                param_schema["title"] = key
+                param_schema["properties"]["params"] = values[key]
+                cls._unknown_template_params[key] = param_schema
+            else:
+                new_values[key] = values[key]
+        return new_values
 
 
 class TemplateConfig(BaseModel):

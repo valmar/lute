@@ -9,14 +9,11 @@ to an Executor.
 
 
 Classes:
-    AnalysisConfig: Data class for holding a managed Task's configuration.
-
     BaseExecutor: Abstract base class from which all Executors are derived.
 
     Executor: Default Executor implementing all basic functionality and IPC.
 
-    BinaryExecutor: Can execute any arbitrary binary/command as a managed task
-        within the framework provided by LUTE.
+    MPIExecutor: Runs exactly as the Executor but submits the Task using MPI.
 
 Exceptions
 ----------
@@ -26,23 +23,62 @@ Exceptions
 __all__ = ["BaseExecutor", "Executor", "MPIExecutor"]
 __author__ = "Gabriel Dorlhiac"
 
-import _io
+import sys
 import logging
 import subprocess
 import time
 import os
 import signal
-from typing import Dict, Callable, List, Optional
-from typing_extensions import Self
+from typing import (
+    overload,
+    Dict,
+    Callable,
+    List,
+    Optional,
+    Any,
+    Tuple,
+    Literal,
+    Union,
+    cast,
+    Protocol,
+    Type,
+)
+from typing_extensions import TypedDict, TypeAlias
 from abc import ABC, abstractmethod
 import warnings
 import copy
+import re
 
-from .ipc import *
-from ..tasks.task import *
-from ..tasks.dataclasses import *
-from ..io.models.base import TaskParameters
-from ..io.db import record_analysis_db
+from lute.execution.logging import get_logger
+from lute.execution.ipc import (
+    Party,
+    Message,
+    PipeCommunicator,
+    SocketCommunicator,
+    LUTE_SIGNALS,
+    Communicator,
+)
+from lute.tasks.dataclasses import (
+    DescribedAnalysis,
+    TaskResult,
+    TaskStatus,
+    ElogSummaryPlots,
+    TaskParametersDBReference,
+)
+from lute.io.parameters import RowIds, construct_task_parameters
+from lute.io.models.base import (
+    TaskParameters,
+    TemplateParameters,
+    AnalysisHeader,  # noqa: F401
+    TemplateConfig,  # noqa: F401
+    ThirdPartyParameters,
+)  # NOTE: All imports required for unpickling!
+from lute.io.db import (
+    record_analysis_db,
+    update_analysis_db,
+    get_task_parameters_defn_and_params,
+)
+from lute.io.elog import post_elog_run_status, post_elog_run_table
 
 if __debug__:
     warnings.simplefilter("default")
@@ -54,7 +90,45 @@ else:
     warnings.simplefilter("ignore")
     os.environ["PYTHONWARNINGS"] = "ignore"
 
-logger: logging.Logger = logging.getLogger(__name__)
+logger: logging.Logger = get_logger(__name__, is_task=False)
+
+
+class TaskletDict(TypedDict):
+    before: Optional[List[Tuple[Callable[[Any], Any], List[Any], bool, bool]]]
+    after: Optional[List[Tuple[Callable[[Any], Any], List[Any], bool, bool]]]
+
+
+Executor_T: TypeAlias = "BaseExecutor"
+
+
+class Hook(Protocol):
+    def __call__(
+        self,
+        executor: Executor_T,
+        msg: Message,
+        proc: Optional[subprocess.Popen] = None,
+    ) -> Optional[bool]: ...
+
+
+class ExecutorHooks:
+    """A container class for the Executor's event hooks.
+
+    There is a corresponding function (hook) for each event/signal. Each
+    function takes three parameters - a reference to the Executor, a reference
+    to the Message (msg) which includes the corresponding signal and the Task
+    subprocess.
+    """
+
+    __slots__ = LUTE_SIGNALS
+
+    no_pickle_mode: Hook
+    task_started: Hook
+    task_failed: Hook
+    task_stopped: Hook
+    task_done: Hook
+    task_cancelled: Hook
+    task_result: Hook
+    task_log: Hook
 
 
 class BaseExecutor(ABC):
@@ -77,31 +151,13 @@ class BaseExecutor(ABC):
         update_environment(env: Dict[str, str], update_path: str): Update the
             environment that is passed to the Task subprocess.
 
+        shell_source(env: str): Source a shell script at `env` to update the
+            environment that is passed to the Task subprocess.
+
         execute_task(): Run the task as a subprocess.
     """
 
-    class Hooks:
-        """A container class for the Executor's event hooks.
-
-        There is a corresponding function (hook) for each event/signal. Each
-        function takes two parameters - a reference to the Executor (self) and
-        a reference to the Message (msg) which includes the corresponding
-        signal.
-        """
-
-        def no_pickle_mode(self: Self, msg: Message): ...
-
-        def task_started(self: Self, msg: Message): ...
-
-        def task_failed(self: Self, msg: Message): ...
-
-        def task_stopped(self: Self, msg: Message): ...
-
-        def task_done(self: Self, msg: Message): ...
-
-        def task_cancelled(self: Self, msg: Message): ...
-
-        def task_result(self: Self, msg: Message): ...
+    Hooks: Type[ExecutorHooks] = ExecutorHooks
 
     def __init__(
         self,
@@ -127,23 +183,167 @@ class BaseExecutor(ABC):
         result: TaskResult = TaskResult(
             task_name=task_name, task_status=TaskStatus.PENDING, summary="", payload=""
         )
-        task_parameters: TaskParameters = TaskParameters()
+        task_parameters: Optional[TaskParameters] = None
         task_env: Dict[str, str] = os.environ.copy()
         self._communicators: List[Communicator] = communicators
-        communicator_desc: List[str] = []
-        for comm in self._communicators:
-            comm.stage_communicator()
-            communicator_desc.append(str(comm))
 
         self._analysis_desc: DescribedAnalysis = DescribedAnalysis(
             task_result=result,
             task_parameters=task_parameters,
             task_env=task_env,
+            executor_name=self.__class__.__name__,
             poll_interval=poll_interval,
-            communicator_desc=communicator_desc,
+            communicator_desc=[""],  # Will update in _pre_task, see method for why
         )
+        self._tasklets: TaskletDict = {"before": None, "after": None}
+        self._shell_source_script: Optional[str] = None
+        self._task_timeout: Optional[int] = None
+        self._task_time0: Optional[float] = None
+        self._row_ids: Optional[RowIds] = None
+        self._delayed_update_env_args: Optional[
+            Tuple[Union[Dict[str, str], Callable[[], Dict[str, str]]], str]
+        ] = None
 
-    def add_hook(self, event: str, hook: Callable[[Self, Message], None]) -> None:
+    def add_tasklet(
+        self,
+        tasklet: Callable,
+        args: List[Any],
+        when: Union[Literal["before"], Literal["after"]] = "after",
+        set_result: bool = False,
+        set_summary: bool = False,
+    ) -> None:
+        """Add/register a tasklet to be run by the Executor.
+
+        Adds a tasklet to be run by the Executor in addition to the main Task.
+        The tasklet can be run before or after the main Task has been run.
+
+        Args:
+            tasklet (Callable[[Any], Any]): The tasklet (function) to run.
+
+            args (List[Any]): A list of all the arguments to be passed to the
+                tasklet. Arguments can include substitutions for parameters to
+                be extracted from the TaskParameters object. The same jinja-like
+                syntax used in configuration file substiutions is used to specify
+                a parameter substitution in an argument. E.g. if a Task to be
+                run has a parameter `input_file`, the parameter can be substituted
+                in the tasklet argument using: `"{{ input_file  }}"`. Note that
+                substitutions must be passed as strings. Conversions will be done
+                during substitution if required.
+
+            when (str): When to run the tasklet. Either `before` or `after` the
+                main Task. Default is after.
+
+            set_result (bool): Whether to use the output from the tasklet as the
+                result of the main Task. Default is False.
+
+            set_summary (bool): Whether to use the output from the tasklet as the
+                summary of the main Task. Default is False.
+        """
+        if when not in ("before", "after"):
+            logger.error("Can only run tasklet `before` or `after` Task! Ignoring...")
+            return
+        tasklet_tuple: Tuple[Callable[[Any], Any], List[Any], bool, bool]
+        tasklet_tuple = (tasklet, args, set_result, set_summary)
+        if self._tasklets[when] is None:
+            self._tasklets[when] = [tasklet_tuple]
+        else:
+            assert isinstance(self._tasklets[when], list)
+            cast(list, self._tasklets[when]).append(tasklet_tuple)
+
+    def _sub_tasklet_parameters(self, args: List[Any]) -> List[Any]:
+        """Substitute tasklet arguments using TaskParameters members."""
+        sub_pattern = r"\{\{[^}{]*\}\}"
+        new_args: List[Any] = []
+        for arg in args:
+            new_arg: Any = arg
+            matches: List[str] = re.findall(sub_pattern, arg)
+            for m in matches:
+                param_name: str = m[2:-2].strip()  # Remove {{}}
+                params: Any = self._analysis_desc.task_parameters
+                if "." in param_name:
+                    # Iterate so we can substitute e.g. {{ lute_config.run }}
+                    hier_param_list: List[str] = param_name.split(".")
+                    for idx, param in enumerate(hier_param_list):
+                        if hasattr(params, param):
+                            if idx != len(hier_param_list) - 1:
+                                params = getattr(params, param)
+                            param_name = param
+                        else:
+                            break
+                if hasattr(params, param_name):
+                    pattern: str = m.replace("{{", r"\{\{").replace("}}", r"\}\}")
+                    sub: Any = getattr(params, param_name)
+                    new_arg = re.sub(pattern, str(sub), new_arg)
+                if new_arg.isnumeric():
+                    new_arg = int(new_arg)
+                else:
+                    try:
+                        new_arg = float(new_arg)
+                    except ValueError:
+                        pass
+            new_args.append(new_arg)
+        return new_args
+
+    def _run_tasklets(
+        self, *, when: Union[Literal["before"], Literal["after"]]
+    ) -> None:
+        """Run all tasklets of the specified kind."""
+        if when not in self._tasklets.keys():
+            logger.error(f"Ignore request to run tasklets of unknown kind: {when}")
+            return
+        if self._tasklets[when] is None:
+            logger.debug(f"No tasklets to run {when}.")
+            return
+        for tasklet_spec in cast(list, self._tasklets[when]):
+            tasklet: Callable[[Any], Any]
+            args: List[Any]
+            set_result: bool
+            set_summary: bool
+            tasklet, args, set_result, set_summary = tasklet_spec
+            args = self._sub_tasklet_parameters(args)
+            logger.debug(f"Running {tasklet} with {args}")
+            output: Any
+            try:
+                output = tasklet(*args)  # Many don't return anything
+            except Exception as err:
+                logger.error(f"Tasklet failed! Error: {err}")
+                output = None
+            # We set result payloads or summaries now, but the processing is done
+            # by process_results method called sometime after the last tasklet
+            tmp: Any
+            if set_result and output is not None:
+                if isinstance(self._analysis_desc.task_result.payload, list):
+                    # We have multiple payloads to process, append to list
+                    self._analysis_desc.task_result.payload.append(output)
+                elif self._analysis_desc.task_result.payload != "":
+                    # We have one payload already, convert to list and append
+                    tmp = self._analysis_desc.task_result.payload
+                    self._analysis_desc.task_result.payload = []
+                    self._analysis_desc.task_result.payload.append(tmp)
+                    self._analysis_desc.task_result.payload.append(output)
+                else:
+                    # Payload == "" - i.e. hasn't been set
+                    self._analysis_desc.task_result.payload = output
+            if set_summary and output is not None:
+                if isinstance(self._analysis_desc.task_result.summary, list):
+                    # We have multiple summary objects to process, append to list
+                    self._analysis_desc.task_result.summary.append(output)
+                elif self._analysis_desc.task_result.summary != "":
+                    # We have one summary already, convert to list and append
+                    tmp = self._analysis_desc.task_result.summary
+                    self._analysis_desc.task_result.summary = []
+                    self._analysis_desc.task_result.summary.append(tmp)
+                    self._analysis_desc.task_result.summary.append(output)
+                else:
+                    # Summary == "" - i.e. hasn't been set
+                    self._analysis_desc.task_result.summary = output
+
+    def add_hook(
+        self,
+        event: str,
+        # hook: Callable[[Self, Message, Optional[subprocess.Popen]], Optional[bool]],
+        hook: Hook,
+    ) -> None:
         """Add a new hook.
 
         Each hook is a function called any time the Executor receives a signal
@@ -167,6 +367,7 @@ class BaseExecutor(ABC):
 
         ...
 
+    @overload
     def update_environment(
         self, env: Dict[str, str], update_path: str = "prepend"
     ) -> None:
@@ -189,6 +390,63 @@ class BaseExecutor(ABC):
                 "prepend" is the default option. If PATH is not present in the
                 current environment, the new PATH is used without modification.
         """
+        ...
+
+    @overload
+    def update_environment(self, env: Callable[[], Dict[str, str]]) -> None:
+        """Update the stored set of environment variables.
+
+        These are passed to the subprocess to setup its environment.
+
+        Args:
+            env (Callable[[],Dict[str, str]]): A managed-Task specific function
+                which returns a dictionary of environment variables to include
+                in the Task environment. This function can implement more complex
+                logic to determine values for the specific environment variables.
+        """
+        ...
+
+    def update_environment(
+        self,
+        env: Union[Dict[str, str], Callable[[], Dict[str, str]]],
+        update_path: str = "prepend",
+    ) -> None:
+        """Update the stored set of environment variables.
+
+        These are passed to the subprocess to setup its environment.
+
+        Args:
+            env (Union[Dict[str, str], Callable[[],Dict[str, str]]]): If a dictionary,
+                it contains a series of "VAR":"VALUE" pairs of environment variables to
+                be added to the subprocess environment. If any variables already exist,
+                the new variables will overwrite them (except PATH, see below). If a
+                callable, a managed-Task specific function which returns a dictionary
+                of environment variables to include in the Task environment. This function
+                can implement more complex logic to determine values for the specific
+                environment variables. If it is a callable, the `update_path` argument
+                to this method is ignored.
+
+            update_path (str): If PATH is present in the new set of variables,
+                this argument determines how the old PATH is dealt with. There
+                are three options:
+                * "prepend" : The new PATH values are prepended to the old ones.
+                * "append" : The new PATH values are appended to the old ones.
+                * "overwrite" : The old PATH is overwritten by the new one.
+                "prepend" is the default option. If PATH is not present in the
+                current environment, the new PATH is used without modification.
+        """
+        self._delayed_update_env_args = (env, update_path)
+
+    def _update_environment(
+        self,
+        env: Union[Dict[str, str], Callable[[], Dict[str, str]]],
+        update_path: str = "prepend",
+    ) -> None:
+        if callable(env):
+            env_update: Dict[str, str] = env()
+            self._analysis_desc.task_env.update(env_update)
+            return
+
         if "PATH" in env:
             sep: str = os.pathsep
             if update_path == "prepend":
@@ -208,7 +466,6 @@ class BaseExecutor(ABC):
                         " Options are: prepend, append, overwrite."
                     )
                 )
-        os.environ.update(env)
         self._analysis_desc.task_env.update(env)
 
     def shell_source(self, env: str) -> None:
@@ -216,25 +473,72 @@ class BaseExecutor(ABC):
 
         Unlike `update_environment` this method sources a new file.
 
+        We prepend a token to each environment variable. This allows the initial
+        part of the Task to be run using the appropriate environment.
+
+        The environment variables containing the token will be swapped in using
+        their appropriate form prior to the actual execution of Task code.
+
         Args:
             env (str): Path to the script to source.
         """
-        import sys
+        self._shell_source_script = env
 
-        if not os.path.exists(env):
-            logger.info(f"Cannot source environment from {env}!")
+    def _shell_source(self) -> None:
+        """Actually shell source step.
+
+        This is run prior to Task execution.
+        """
+        if self._shell_source_script is None:
+            logger.error("Called _shell_source without defining source script!")
+            return
+        if not os.path.exists(self._shell_source_script):
+            logger.error(f"Cannot source environment from {self._shell_source_script}!")
             return
 
         script: str = (
             f"set -a\n"
-            f'source "{env}" >/dev/null\n'
+            f'source "{self._shell_source_script}" >/dev/null\n'
             f'{sys.executable} -c "import os; print(dict(os.environ))"\n'
         )
-        logger.info(f"Sourcing file {env}")
+        logger.info(f"Sourcing file {self._shell_source_script}")
         o, e = subprocess.Popen(
             ["bash", "-c", script], stdout=subprocess.PIPE
         ).communicate()
-        new_environment: Dict[str, str] = eval(o)
+        tmp_environment: Dict[str, str] = eval(o)
+        new_environment: Dict[str, str] = {}
+        for key, value in tmp_environment.items():
+            # Make sure LUTE vars are available
+            if "LUTE_" in key or "SLURM_" in key or key in ("RUN", "EXPERIMENT"):
+                new_environment[key] = value
+            else:
+                new_environment[f"LUTE_TENV_{key}"] = value
+                # Make sure we don't accidentally lose our current environment
+                if key in os.environ and os.getenv(key) == value:
+                    # Add identical items first
+                    new_environment[key] = value
+                elif key == "PYTHONPATH":
+                    # Handle PYTHONPATH specifically if above doesn't catch it
+                    curr: Optional[str] = os.getenv("PYTHONPATH")
+                    if curr is not None:
+                        if curr in value:
+                            new_environment[key] = value
+                        else:
+                            # Not in PYTHONPATH, make sure to add it in
+                            new_environment[key] = f"{value}:{curr}"
+
+        # Until we make LUTE installable... Need to make sure this is available
+        # for first-party Tasks, regardless of the directory they run in if using
+        # a new environment
+        old_python_path: str = new_environment.get("PYTHONPATH", "")
+        lute_path: Optional[str] = os.getenv("LUTE_PATH")
+        if lute_path is None:
+            logger.warning("LUTE_PATH not defined! Task may fail to find LUTE!")
+        else:
+            if old_python_path:
+                new_environment["PYTHONPATH"] = f"{lute_path}:{old_python_path}"
+            else:
+                new_environment["PYTHONPATH"] = lute_path
         self._analysis_desc.task_env = new_environment
 
     def _pre_task(self) -> None:
@@ -243,7 +547,24 @@ class BaseExecutor(ABC):
         This method may or may not be used by subclasses. It may be useful
         for logging etc.
         """
-        ...
+        # This prevents the Executors in managed_tasks.py from all acquiring
+        # resources like sockets.
+        # Some Communicators setup descriptions during delayed_setup
+        # so we update our analysis description now.
+        communicator_desc: List[str] = []
+        for communicator in self._communicators:
+            communicator.delayed_setup()
+            # Not great, but experience shows we need a bit of time to setup
+            # network.
+            time.sleep(0.1)
+            communicator.stage_communicator()
+            communicator_desc.append(str(communicator))
+        self._analysis_desc.communicator_desc = communicator_desc
+        # Propagate any env vars setup by Communicators - only update LUTE_ vars
+        tmp: Dict[str, str] = {
+            key: os.environ[key] for key in os.environ if "LUTE_" in key
+        }
+        self._analysis_desc.task_env.update(tmp)
 
     def _submit_task(self, cmd: str) -> subprocess.Popen:
         proc: subprocess.Popen = subprocess.Popen(
@@ -252,8 +573,10 @@ class BaseExecutor(ABC):
             stderr=subprocess.PIPE,
             env=self._analysis_desc.task_env,
         )
-        os.set_blocking(proc.stdout.fileno(), False)
-        os.set_blocking(proc.stderr.fileno(), False)
+        if proc.stdout is not None:
+            os.set_blocking(proc.stdout.fileno(), False)
+        if proc.stderr is not None:
+            os.set_blocking(proc.stderr.fileno(), False)
         return proc
 
     @abstractmethod
@@ -274,50 +597,126 @@ class BaseExecutor(ABC):
         """
         ...
 
+    def _submit_cmd(self, executable_path: str, params: str) -> str:
+        """Return a formatted command for launching Task subprocess.
+
+        May be overridden by subclasses.
+
+        The default submission uses the Executor environment. This ensures that
+        all necessary packages (e.g. Pydantic for validation) are available to
+        the startup scripts. If a Task has a different environment it will be
+        swapped prior to execution.
+
+        Args:
+            executable_path (str): Path to the LUTE subprocess script.
+
+            params (str): String of formatted command-line arguments.
+
+        Returns:
+            cmd (str): Appropriately formatted command for this Executor.
+        """
+        cmd: str = ""
+        if __debug__:
+            cmd = f"{sys.executable} -B {executable_path} {params}"
+        else:
+            cmd = f"{sys.executable} -OB {executable_path} {params}"
+
+        return cmd
+
     def execute_task(self) -> None:
         """Run the requested Task as a subprocess."""
+        self._pre_task()
         lute_path: Optional[str] = os.getenv("LUTE_PATH")
         if lute_path is None:
             logger.debug("Absolute path to subprocess_task.py not found.")
             lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
-            self.update_environment({"LUTE_PATH": lute_path})
+            os.environ.update({"LUTE_PATH": lute_path})
+            self._analysis_desc.task_env.update({"LUTE_PATH": lute_path})
         executable_path: str = f"{lute_path}/subprocess_task.py"
         config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
         params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
 
-        cmd: str = ""
-        if __debug__:
-            cmd = f"python -B {executable_path} {params}"
-        else:
-            cmd = f"python -OB {executable_path} {params}"
+        # Prevent all managed tasks from affecting each others environments
+        if self._shell_source_script is not None:
+            self._shell_source()
 
+        if self._delayed_update_env_args is not None:
+            self._update_environment(*self._delayed_update_env_args)
+
+        cmd: str = self._submit_cmd(executable_path, params)
         proc: subprocess.Popen = self._submit_task(cmd)
+        self._task_time0 = time.monotonic()
 
         while self._task_is_running(proc):
             self._task_loop(proc)
+            if self._task_timeout is not None:
+                run_time: float = time.monotonic() - self._task_time0
+                if run_time > self._task_timeout:
+                    logger.error("Task timed out!")
+                    self._sigalrm_task(proc)
             time.sleep(self._analysis_desc.poll_interval)
 
-        os.set_blocking(proc.stdout.fileno(), True)
-        os.set_blocking(proc.stderr.fileno(), True)
+        if proc.stdout is not None:
+            os.set_blocking(proc.stdout.fileno(), True)
+        if proc.stderr is not None:
+            os.set_blocking(proc.stderr.fileno(), True)
 
         self._finalize_task(proc)
-        proc.stdout.close()
-        proc.stderr.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
         proc.wait()
         if ret := proc.returncode:
-            logger.info(f"Task failed with return code: {ret}")
-            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+            if self._analysis_desc.task_result.task_status != TaskStatus.TIMEDOUT:
+                logger.warning(f"Task failed with return code: {ret}")
+                self._analysis_desc.task_result.task_status = TaskStatus.FAILED
+                self.Hooks.task_failed(self, msg=Message())
         elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
             # Ret code is 0, no exception was thrown, task forgot to set status
             self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
-            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
-        self._store_configuration()
+            logger.debug("Task did not change from RUNNING status. Assume COMPLETED.")
+            self.Hooks.task_done(self, msg=Message())
+        if self._tasklets["after"] is not None:
+            # Tasklets before results processing since they may create result
+            self._run_tasklets(when="after")
+
+        try:
+            self.process_results()
+        except Exception as err:
+            logger.critical(
+                f"Unable to process results! Downstream Tasks may fail! {err}"
+            )
+
+        try:
+            self._store_configuration()
+        except Exception as err:
+            logger.critical(
+                f"Unable to store configuration! Downstream Tasks may fail! {err}"
+            )
+
         for comm in self._communicators:
             comm.clear_communicator()
+        time.sleep(1)
+        if self._analysis_desc.task_result.task_status in (
+            TaskStatus.FAILED,
+            TaskStatus.TIMEDOUT,
+            TaskStatus.CANCELLED,
+        ):
+            logger.info("Exiting after Task failure. Result recorded.")
+            logging.shutdown()
+            sys.exit(-1)
+        logger.info("Exiting after Task completion.")
+        logging.shutdown()
 
     def _store_configuration(self) -> None:
         """Store configuration and results in the LUTE database."""
-        record_analysis_db(copy.deepcopy(self._analysis_desc))
+        if self._row_ids is not None:
+            update_analysis_db(
+                cfg=copy.deepcopy(self._analysis_desc), row_ids=self._row_ids
+            )
+        else:
+            record_analysis_db(cfg=copy.deepcopy(self._analysis_desc))
 
     def _task_is_running(self, proc: subprocess.Popen) -> bool:
         """Whether a subprocess is running.
@@ -335,6 +734,7 @@ class BaseExecutor(ABC):
         is_running: bool = task_status != TaskStatus.COMPLETED
         is_running &= task_status != TaskStatus.CANCELLED
         is_running &= task_status != TaskStatus.TIMEDOUT
+        is_running &= task_status != TaskStatus.FAILED
         return proc.poll() is None and is_running
 
     def _stop(self, proc: subprocess.Popen) -> None:
@@ -342,10 +742,148 @@ class BaseExecutor(ABC):
         os.kill(proc.pid, signal.SIGTSTP)
         self._analysis_desc.task_result.task_status = TaskStatus.STOPPED
 
+    def _sigalrm_task(self, proc: subprocess.Popen) -> None:
+        """Timeout the Task subprocess with SIGALRM."""
+        os.kill(proc.pid, signal.SIGALRM)
+        self._analysis_desc.task_result.task_status = TaskStatus.TIMEDOUT
+
     def _continue(self, proc: subprocess.Popen) -> None:
         """Resume a stopped Task subprocess."""
         os.kill(proc.pid, signal.SIGCONT)
         self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
+
+    def _set_result_from_parameters(self) -> None:
+        """Use TaskParameters object to set TaskResult fields.
+
+        A result may be defined in terms of specific parameters. This is most
+        useful for ThirdPartyTasks which would not otherwise have an easy way of
+        reporting what the TaskResult is. There are two options for specifying
+        results from parameters:
+            1. A single parameter (Field) of the model has an attribute
+               `is_result`. This is a bool indicating that this parameter points
+               to a result. E.g. a parameter `output` may set `is_result=True`.
+            2. The `TaskParameters.Config` has a `result_from_params` attribute.
+               This is an appropriate option if the result is determinable for
+               the Task, but it is not easily defined by a single parameter. The
+               TaskParameters.Config.result_from_param can be set by a custom
+               validator, e.g. to combine the values of multiple parameters into
+               a single result. E.g. an `out_dir` and `out_file` parameter used
+               together specify the result. Currently only string specifiers are
+               supported.
+
+        A TaskParameters object specifies that it contains information about the
+        result by setting a single config option:
+                        TaskParameters.Config.set_result=True
+        In general, this method should only be called when the above condition is
+        met, however, there are minimal checks in it as well.
+        """
+        # This method shouldn't be called unless appropriate
+        # But we will add extra guards here
+        if self._analysis_desc.task_parameters is None:
+            logger.debug(
+                "Cannot set result from TaskParameters. TaskParameters is None!"
+            )
+            return
+        if (
+            not hasattr(self._analysis_desc.task_parameters.Config, "set_result")
+            or not self._analysis_desc.task_parameters.Config.set_result
+        ):
+            logger.debug(
+                "Cannot set result from TaskParameters. `set_result` not specified!"
+            )
+            return
+
+        # First try to set from result_from_params (faster)
+        if hasattr(self._analysis_desc.task_parameters, "_result_from_params"):
+            result_from_params: str = (
+                self._analysis_desc.task_parameters._result_from_params
+            )
+            logger.info(f"TaskResult specified as {result_from_params}.")
+            self._analysis_desc.task_result.payload = result_from_params
+            del self._analysis_desc.task_parameters._result_from_params
+        else:
+            # Iterate parameters to find the one that is the result
+            schema: Dict[str, Any] = self._analysis_desc.task_parameters.schema()
+            for param, value in self._analysis_desc.task_parameters.dict().items():
+                if param == "_result_from_params":
+                    continue
+                param_attrs: Dict[str, Any]
+                if isinstance(value, TemplateParameters):
+                    # Extract TemplateParameters if needed
+                    value = value.params
+                    extra_models: List[str] = schema["definitions"].keys()
+                    for model in extra_models:
+                        if model in ("AnalysisHeader", "TemplateConfig"):
+                            continue
+                        if param in schema["definitions"][model]["properties"]:
+                            param_attrs = schema["definitions"][model]["properties"][
+                                param
+                            ]
+                            break
+                    else:
+                        if isinstance(
+                            self._analysis_desc.task_parameters, ThirdPartyParameters
+                        ):
+                            param_attrs = self._analysis_desc.task_parameters._unknown_template_params[
+                                param
+                            ]
+                        else:
+                            raise ValueError(
+                                f"No parameter schema for {param}. Check model!"
+                            )
+                else:
+                    param_attrs = schema["properties"][param]
+                if "is_result" in param_attrs:
+                    is_result: bool = param_attrs["is_result"]
+                    if isinstance(is_result, bool) and is_result:
+                        logger.info(f"TaskResult specified as {value}.")
+                        self._analysis_desc.task_result.payload = value
+                    else:
+                        logger.debug(
+                            (
+                                f"{param} specified as result! But specifier is of "
+                                f"wrong type: {type(is_result)}!"
+                            )
+                        )
+                    break  # We should only have 1 result-like parameter!
+
+        # If we get this far and haven't changed the payload we should complain
+        task_name: str
+        if self._analysis_desc.task_result.payload == "":
+            task_name = self._analysis_desc.task_result.task_name
+            logger.debug(
+                (
+                    f"{task_name} specified result be set from {task_name}Parameters,"
+                    " but no result provided! Check model definition!"
+                )
+            )
+        # Now check for impl_schemas and pass to result.impl_schemas
+        # Currently unused
+        impl_schemas: Optional[str] = (
+            self._analysis_desc.task_parameters.Config.impl_schemas
+        )
+        self._analysis_desc.task_result.impl_schemas = impl_schemas
+        # If we set_result but didn't get schema information we should complain
+        if self._analysis_desc.task_result.impl_schemas is None:
+            task_name = self._analysis_desc.task_result.task_name
+            logger.debug(
+                (
+                    f"{task_name} specified result be set from {task_name}Parameters,"
+                    " but no schema provided! Check model definition!"
+                )
+            )
+
+    def process_results(self) -> None:
+        """Perform any necessary steps to process TaskResults object.
+
+        Processing will depend on subclass. Examples of steps include, moving
+        files, converting file formats, compiling plots/figures into an HTML
+        file, etc.
+        """
+        self._process_results()
+
+    @abstractmethod
+    def _process_results(self) -> None: ...
 
 
 class Executor(BaseExecutor):
@@ -385,48 +923,168 @@ class Executor(BaseExecutor):
     def add_default_hooks(self) -> None:
         """Populate the set of default event hooks."""
 
-        def no_pickle_mode(self: Executor, msg: Message):
-            for idx, communicator in enumerate(self._communicators):
+        def no_pickle_mode(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            for idx, communicator in enumerate(executor._communicators):
                 if isinstance(communicator, PipeCommunicator):
-                    self._communicators[idx] = PipeCommunicator(
+                    executor._communicators[idx] = PipeCommunicator(
                         Party.EXECUTOR, use_pickle=False
                     )
+            return None
 
         self.add_hook("no_pickle_mode", no_pickle_mode)
 
-        def task_started(self: Executor, msg: Message):
+        def task_started(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            assert proc is not None
             if isinstance(msg.contents, TaskParameters):
-                self._analysis_desc.task_parameters = msg.contents
-            logger.info(
-                f"Executor: {self._analysis_desc.task_result.task_name} started"
+                executor._analysis_desc.task_parameters = msg.contents
+            elif isinstance(msg.contents, TaskParametersDBReference):
+                work_dir: str = msg.contents.db_dir
+                row_ids: RowIds = msg.contents.row_ids
+                definition: Dict[str, Any]
+                param_values: Dict[str, Any]
+                definition, param_values = get_task_parameters_defn_and_params(
+                    db_dir=work_dir, row_ids=row_ids
+                )
+                task_parameters: Any = construct_task_parameters(
+                    schema=definition, values=param_values
+                )
+                task_parameters.lute_config.work_dir = work_dir
+                executor._analysis_desc.task_parameters = task_parameters
+                executor._row_ids = row_ids
+            else:
+                logger.critical(
+                    "Received start message, but cannot grab TaskParameters!\n"
+                    f"Message contents: {msg.contents}"
+                )
+                return None
+            assert executor._analysis_desc.task_parameters is not None
+            # Run "before" tasklets
+            if executor._tasklets["before"] is not None:
+                executor._run_tasklets(when="before")
+            # Need to continue since Task._signal_start raises SIGSTOP
+            status: int
+            _, status = os.waitpid(proc.pid, os.WUNTRACED)
+            if os.WIFSTOPPED(status):
+                executor._continue(proc)
+            executor._task_timeout = (
+                executor._analysis_desc.task_parameters.lute_config.task_timeout
             )
-            self._analysis_desc.task_result.task_status = TaskStatus.RUNNING
+            if hasattr(executor._analysis_desc.task_parameters.Config, "set_result"):
+                # Tasks may mark a parameter as the result
+                # If so, setup the result now.
+                executor._set_result_from_parameters()
+            logger.info(
+                f"Executor: {executor._analysis_desc.task_result.task_name} started"
+            )
+            executor._analysis_desc.task_result.task_status = TaskStatus.RUNNING
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "RUNNING",
+            }
+            post_elog_run_status(elog_data)
+            return None
 
         self.add_hook("task_started", task_started)
 
-        def task_failed(self: Executor, msg: Message): ...
+        def task_failed(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "FAILED",
+            }
+            post_elog_run_status(elog_data)
+            return None
 
         self.add_hook("task_failed", task_failed)
 
-        def task_stopped(self: Executor, msg: Message): ...
+        def task_stopped(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "STOPPED",
+            }
+            post_elog_run_status(elog_data)
+            return None
 
         self.add_hook("task_stopped", task_stopped)
 
-        def task_done(self: Executor, msg: Message): ...
+        def task_done(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "COMPLETED",
+            }
+            post_elog_run_status(elog_data)
+            return None
 
         self.add_hook("task_done", task_done)
 
-        def task_cancelled(self: Executor, msg: Message): ...
+        def task_cancelled(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "CANCELLED",
+            }
+            post_elog_run_status(elog_data)
+            return None
 
         self.add_hook("task_cancelled", task_cancelled)
 
-        def task_result(self: Executor, msg: Message):
+        def task_result(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
             if isinstance(msg.contents, TaskResult):
-                self._analysis_desc.task_result = msg.contents
-                logger.info(self._analysis_desc.task_result.summary)
-                logger.info(self._analysis_desc.task_result.task_status)
+                executor._analysis_desc.task_result = msg.contents
+                # flake8: noqa: E731
+                is_printable_type: Callable[[Any], bool] = lambda x: isinstance(
+                    x, dict
+                ) or isinstance(x, str)
+                if is_printable_type(executor._analysis_desc.task_result.summary):
+                    logger.info(executor._analysis_desc.task_result.summary)
+                elif isinstance(executor._analysis_desc.task_result.summary, list):
+                    for item in executor._analysis_desc.task_result.summary:
+                        if is_printable_type(item):
+                            logger.info(item)
+
+                logger.info(executor._analysis_desc.task_result.task_status)
+            elog_data: Dict[str, str] = {
+                f"{executor._analysis_desc.task_result.task_name} status": "COMPLETED",
+            }
+            post_elog_run_status(elog_data)
+
+            return True
 
         self.add_hook("task_result", task_result)
+
+        def task_log(
+            executor: Executor_T,
+            msg: Message,
+            proc: Optional[subprocess.Popen] = None,
+        ) -> Optional[bool]:
+            if isinstance(msg.contents, str):
+                # This should be log formatted already
+                print(msg.contents)
+                return True
+            return False
+
+        self.add_hook("task_log", task_log)
 
     def _task_loop(self, proc: subprocess.Popen) -> None:
         """Actions to perform while the Task is running.
@@ -434,16 +1092,29 @@ class Executor(BaseExecutor):
         This function is run in the body of a loop until the Task signals
         that its finished.
         """
+        # Some hooks may ask that the rest of the task loop be skipped (continued)
+        should_continue: Optional[bool]
         for communicator in self._communicators:
-            msg: Message = communicator.read(proc)
-            if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
-                hook: Callable[[None], None] = getattr(self.Hooks, msg.signal.lower())
-                hook(self, msg)
-            if msg.contents is not None:
-                if isinstance(msg.contents, str) and msg.contents != "":
-                    logger.info(msg.contents)
-                elif not isinstance(msg.contents, str):
-                    logger.info(msg.contents)
+            while True:
+                msg: Message = communicator.read(proc)
+                if msg.signal is not None and msg.signal.upper() in LUTE_SIGNALS:
+                    hook: Hook = getattr(self.Hooks, msg.signal.lower())
+                    should_continue = hook(self, msg, proc)
+                    if should_continue:
+                        continue
+
+                if msg.contents is not None:
+                    if isinstance(msg.contents, str) and msg.contents != "":
+                        logger.info(msg.contents)
+                    elif isinstance(msg.contents, TaskParametersDBReference):
+                        # We will log the actual reconstructed TaskParameters object
+                        # instead of the raw message. The raw message only contains
+                        # the pointers for reconstructing the object.
+                        logger.info(self._analysis_desc.task_parameters)
+                    elif not isinstance(msg.contents, str):
+                        logger.info(msg.contents)
+                if not communicator.has_messages:
+                    break
 
     def _finalize_task(self, proc: subprocess.Popen) -> None:
         """Any actions to be performed after the Task has ended.
@@ -452,6 +1123,144 @@ class Executor(BaseExecutor):
         reporting to third party services, etc.
         """
         self._task_loop(proc)  # Perform a final read.
+
+    def _process_results(self) -> None:
+        """Performs result processing.
+
+        Actions include:
+        - For `ElogSummaryPlots`, will save the summary plot to the appropriate
+            directory for display in the eLog.
+        """
+        task_result: TaskResult = self._analysis_desc.task_result
+        self._process_result_payload(task_result.payload)
+        self._process_result_summary(task_result.summary)
+
+    def _process_result_payload(self, payload: Any) -> None:
+        if self._analysis_desc.task_parameters is None:
+            logger.error(
+                "Please run Task before using this method! (_process_result_payload). "
+                "If you did run a Task, it may have failed immediately!"
+            )
+            return
+        new_payload: Optional[str]
+        if isinstance(payload, ElogSummaryPlots):
+            new_payload = self._process_elog_plot(payload)
+            if new_payload is not None:
+                self._analysis_desc.task_result.payload = new_payload
+        elif isinstance(payload, list) or isinstance(payload, tuple):
+            new_payload = ""
+            for item in payload:
+                if isinstance(item, ElogSummaryPlots):
+                    ret: Optional[str] = self._process_elog_plot(item)
+                    if ret is not None:
+                        new_payload = ";".join(filter(None, (new_payload, ret)))
+            if new_payload != "":
+                self._analysis_desc.task_result.payload = new_payload
+        elif isinstance(payload, str):
+            ...
+            # May be a path to a file...
+            # schemas: Optional[str] = self._analysis_desc.task_result.impl_schemas
+            # Should also check `impl_schemas` to determine what to do with path
+
+    def _process_elog_plot(self, plots: ElogSummaryPlots) -> Optional[str]:
+        """Process an ElogSummaryPlots
+
+        Writes out the eLog summary plot for display and returns the path of
+        where the plots were written out so they can be stored as the result
+        payload.
+
+        ElogSummaryPlots objects already convert the plots to a byte stream
+        which can be directly written to an HTML file.
+
+        Args:
+            plots (ElogSummaryPlots): The plots dataclass.
+
+        Returns:
+            path (str): Path the plots were written out to.
+        """
+        if self._analysis_desc.task_parameters is None:
+            logger.error(
+                "Please run Task before using this method! (_process_elog_plot). "
+                "If you did run a Task, it may have failed immediately!"
+            )
+            return None
+        # ElogSummaryPlots has figures and a display name
+        # display name also serves as a path.
+        expmt: str = self._analysis_desc.task_parameters.lute_config.experiment
+        base_path: str = f"/sdf/data/lcls/ds/{expmt[:3]}/{expmt}/stats/summary"
+        full_path: str = f"{base_path}/{plots.display_name}"
+        if not os.path.isdir(full_path):
+            os.makedirs(full_path)
+
+        path: str = f"{full_path}/report.html"
+        with open(f"{full_path}/report.html", "wb") as f:
+            f.write(plots.figures)
+
+        return path
+
+    def _process_result_summary(self, summary: Any) -> None:
+        """Process an object destined for the results summary.
+
+        Args:
+            summary (Any): The object to be set as a summary. If a dictionary
+                it is assumed to be a set of key/value pairs to be written out
+                as run parameters in the eLog. If a list each item is processed
+                individually.
+        """
+        if self._analysis_desc.task_parameters is None:
+            logger.error(
+                "Please run Task before using this method! (_process_result_summary). "
+                "If you did run a Task, it may have failed immediately!"
+            )
+            return
+        if isinstance(summary, dict):
+            # Assume dict is key: value pairs of eLog run parameters to post
+            self._analysis_desc.task_result.summary = self._process_summary_run_params(
+                summary
+            )
+        elif isinstance(summary, list) or isinstance(summary, tuple):
+            new_summary_str: str = ""
+            for item in summary:
+                if isinstance(item, dict):
+                    ret: str = self._process_summary_run_params(item)
+                    new_summary_str = ";".join(filter(None, (new_summary_str, ret)))
+                elif isinstance(item, ElogSummaryPlots):
+                    plot_path: Optional[str] = self._process_elog_plot(item)
+                    new_summary_str = ";".join(
+                        filter(None, (new_summary_str, plot_path))
+                    )
+            self._analysis_desc.task_result.summary = new_summary_str
+        elif isinstance(summary, str):
+            ...
+        else:
+            ...
+
+    def _process_summary_run_params(self, params: Dict[str, str]) -> str:
+        """Process a dictionary of run parameters to be posted to the eLog.
+
+        Args:
+            params (Dict[str, str]): Key/value pairs to be posted as run parameters.
+
+        Returns:
+            summary_str (str): New string of key/value pairs to be stored in
+                summary field of the database.
+        """
+        if self._analysis_desc.task_parameters is None:
+            logger.error(
+                "Please run Task before using this method! (_process_summary_run_params). "
+                "If you did run a Task, it may have failed immediately!"
+            )
+            return ""
+        exp: str = self._analysis_desc.task_parameters.lute_config.experiment
+        run: int = int(self._analysis_desc.task_parameters.lute_config.run)
+        logger.debug("Posting eLog run parameters.")
+        try:
+            post_elog_run_table(exp, run, params)
+        except Exception as err:
+            logger.error(f"Unable to post run parameters! Error: {err}")
+        post_elog_run_status(params)
+        summary_str: str = ";".join(f"{key}: {value}" for key, value in params.items())
+        return summary_str
 
 
 class MPIExecutor(Executor):
@@ -468,23 +1277,25 @@ class MPIExecutor(Executor):
 
     This Executor will submit the Task to run with a number of processes equal
     to the total number of cores available minus 1. A single core is reserved
-    for the Executor itself.
+    for the Executor itself. Note that currently this means that you must submit
+    on 3 cores or more, since MPI requires a minimum of 2 ranks, and the number
+    of ranks is determined from the cores dedicated to Task execution.
 
     Methods:
-        execute_task(): Run the task as a subprocess using `mpirun`.
+        _submit_cmd: Run the task as a subprocess using `mpirun`.
     """
 
-    def execute_task(self) -> None:
-        """Run the requested Task as a subprocess."""
-        lute_path: Optional[str] = os.getenv("LUTE_PATH")
-        if lute_path is None:
-            logger.debug("Absolute path to subprocess.py not found.")
-            lute_path = os.path.abspath(f"{os.path.dirname(__file__)}/../..")
-            os.environ["LUTE_PATH"] = lute_path
-        executable_path: str = f"{lute_path}/subprocess_task.py"
-        config_path: str = self._analysis_desc.task_env["LUTE_CONFIGPATH"]
-        params: str = f"-c {config_path} -t {self._analysis_desc.task_result.task_name}"
+    def _submit_cmd(self, executable_path: str, params: str) -> str:
+        """Override submission command to use `mpirun`
 
+        Args:
+            executable_path (str): Path to the LUTE subprocess script.
+
+            params (str): String of formatted command-line arguments.
+
+        Returns:
+            cmd (str): Appropriately formatted command for this Executor.
+        """
         py_cmd: str = ""
         nprocs: int = max(
             int(os.environ.get("SLURM_NPROCS", len(os.sched_getaffinity(0)))) - 1, 1
@@ -496,26 +1307,4 @@ class MPIExecutor(Executor):
             py_cmd = f"python -OB -u -m mpi4py.run {executable_path} {params}"
 
         cmd: str = f"{mpi_cmd} {py_cmd}"
-        proc: subprocess.Popen = self._submit_task(cmd)
-
-        while self._task_is_running(proc):
-            self._task_loop(proc)
-            time.sleep(self._analysis_desc.poll_interval)
-
-        os.set_blocking(proc.stdout.fileno(), True)
-        os.set_blocking(proc.stderr.fileno(), True)
-
-        self._finalize_task(proc)
-        proc.stdout.close()
-        proc.stderr.close()
-        proc.wait()
-        if ret := proc.returncode:
-            logger.info(f"Task failed with return code: {ret}")
-            self._analysis_desc.task_result.task_status = TaskStatus.FAILED
-        elif self._analysis_desc.task_result.task_status == TaskStatus.RUNNING:
-            # Ret code is 0, no exception was thrown, task forgot to set status
-            self._analysis_desc.task_result.task_status = TaskStatus.COMPLETED
-            logger.debug(f"Task did not change from RUNNING status. Assume COMPLETED.")
-        self._store_configuration()
-        for comm in self._communicators:
-            comm.clear_communicator()
+        return cmd

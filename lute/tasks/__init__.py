@@ -10,7 +10,7 @@ Exceptions:
 
 from typing import Type
 
-from .task import Task
+from lute.tasks.task import Task
 
 
 class TaskNotFoundError(Exception):
@@ -65,5 +65,40 @@ def import_task(task_name: str) -> Type[Task]:
         from .sfx_index import ConcatenateStreamFiles
 
         return ConcatenateStreamFiles
+
+    if task_name == "AnalyzeSmallDataXSS":
+        from .smalldata import AnalyzeSmallDataXSS
+
+        return AnalyzeSmallDataXSS
+
+    if task_name == "AnalyzeSmallDataXAS":
+        from .smalldata import AnalyzeSmallDataXAS
+
+        return AnalyzeSmallDataXAS
+
+    if task_name == "AnalyzeSmallDataXES":
+        from .smalldata import AnalyzeSmallDataXES
+
+        return AnalyzeSmallDataXES
+
+    if task_name == "TestMultiNodeCommunication":
+        from .mpi_test import TestMultiNodeCommunication
+
+        return TestMultiNodeCommunication
+
+    if task_name == "OptimizeAgBhGeometryExhaustive":
+        from .geometry import OptimizeAgBhGeometryExhaustive
+
+        return OptimizeAgBhGeometryExhaustive
+
+    if task_name == "ConvertSMDToNexus":
+        from .nexus import ConvertSMDToNexus
+
+        return ConvertSMDToNexus
+
+    if task_name == "ConvertXtc1to2":
+        from .xtc import ConvertXtc1to2
+
+        return ConvertXtc1to2
 
     raise TaskNotFoundError

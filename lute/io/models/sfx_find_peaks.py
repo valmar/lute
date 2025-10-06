@@ -2,12 +2,21 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, PositiveInt, validator
+from pydantic import BaseModel, Field, PositiveInt, validator, root_validator
 
-from .base import BaseBinaryParameters, TaskParameters, TemplateConfig
+from .base import ThirdPartyParameters, TaskParameters, TemplateConfig
 
 
 class FindPeaksPyAlgosParameters(TaskParameters):
+    """Parameters for crystallographic (Bragg) peak finding using PyAlgos.
+
+    This peak finding Task optionally has the ability to compress/decompress
+    data with SZ for the purpose of compression validation.
+    """
+
+    class Config(TaskParameters.Config):
+        set_result: bool = True
+        """Whether the Executor should mark a specified parameter as a result."""
 
     class SZCompressorParameters(BaseModel):
         compressor: Literal["qoz", "sz3"] = Field(
@@ -38,7 +47,6 @@ class FindPeaksPyAlgosParameters(TaskParameters):
         description="Tag to add to the output file names",
     )
     pv_camera_length: Union[str, float] = Field(
-        "",
         description="PV associated with camera length "
         "(if a number, camera length directly)",
     )
@@ -111,9 +119,10 @@ class FindPeaksPyAlgosParameters(TaskParameters):
         description="Path to output file.",
         flag_type="-",
         rename_param="o",
+        is_result=True,
     )
 
-    @validator("out_file")
+    @validator("out_file", always=True)
     def validate_out_file(cls, out_file: str, values: Dict[str, Any]) -> str:
         if out_file == "":
             fname: Path = (
@@ -125,7 +134,20 @@ class FindPeaksPyAlgosParameters(TaskParameters):
         return out_file
 
 
-class FindPeaksPsocakeParameters(BaseBinaryParameters):
+class FindPeaksPsocakeParameters(ThirdPartyParameters):
+    """Parameters for crystallographic (Bragg) peak finding using Psocake.
+
+    This peak finding Task optionally has the ability to compress/decompress
+    data with SZ for the purpose of compression validation.
+    NOTE: This Task is deprecated and provided for compatibility only.
+    """
+
+    class Config(TaskParameters.Config):
+        set_result: bool = True
+        """Whether the Executor should mark a specified parameter as a result."""
+
+        result_from_params: str = ""
+        """Defines a result from the parameters. Use a validator to do so."""
 
     class SZParameters(BaseModel):
         compressor: Literal["qoz", "sz3"] = Field(
@@ -241,7 +263,7 @@ class FindPeaksPsocakeParameters(BaseBinaryParameters):
     instrument: Union[None, str] = Field(
         None, description="Instrument name", flag_type="--"
     )
-    pixelSize: float = Field(0.0, description="Pixel size", lag_type="--")
+    pixelSize: float = Field(0.0, description="Pixel size", flag_type="--")
     auto: str = Field(
         "False",
         description=(
@@ -251,10 +273,10 @@ class FindPeaksPsocakeParameters(BaseBinaryParameters):
         flag_type="--",
     )
     detectorDistance: float = Field(
-        0.0, description="Detector distance from interaction point in m"
+        0.0, description="Detector distance from interaction point in m", flag_type="--"
     )
     access: Literal["ana", "ffb"] = Field(
-        "ana", description="Data node type: {ana,ffb}"
+        "ana", description="Data node type: {ana,ffb}", flag_type="--"
     )
     szfile: str = Field("qoz.json", description="Path to SZ's JSON configuration file")
     lute_template_cfg: TemplateConfig = Field(
@@ -268,13 +290,13 @@ class FindPeaksPsocakeParameters(BaseBinaryParameters):
         description="Configuration parameters for SZ Compression", flag_type=""
     )
 
-    @validator("e")
+    @validator("e", always=True)
     def validate_e(cls, e: str, values: Dict[str, Any]) -> str:
         if e == "":
             return values["lute_config"].experiment
         return e
 
-    @validator("r")
+    @validator("r", always=True)
     def validate_r(cls, r: int, values: Dict[str, Any]) -> int:
         if r == -1:
             return values["lute_config"].run
@@ -291,7 +313,7 @@ class FindPeaksPsocakeParameters(BaseBinaryParameters):
     @validator("sz_parameters", always=True)
     def set_sz_compression_parameters(
         cls, sz_parameters: SZParameters, values: Dict[str, Any]
-    ) -> SZParameters:
+    ) -> None:
         values["compressor"] = sz_parameters.compressor
         values["binSize"] = sz_parameters.binSize
         values["roiWindowSize"] = sz_parameters.roiWindowSize
@@ -303,3 +325,13 @@ class FindPeaksPsocakeParameters(BaseBinaryParameters):
         else:
             values["pressio_opts"] = {"pressio:abs": sz_parameters.absError}
         return None
+
+    @root_validator(pre=False)
+    def define_result(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        exp: str = values["lute_config"].experiment
+        run: int = int(values["lute_config"].run)
+        directory: str = values["outDir"]
+        fname: str = f"{exp}_{run:04d}.lst"
+
+        cls.Config.result_from_params = f"{directory}/{fname}"
+        return values

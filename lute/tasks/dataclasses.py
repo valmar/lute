@@ -10,14 +10,37 @@ Classes:
         parameters, env).
 """
 
-__all__ = ["TaskResult", "TaskStatus", "DescribedAnalysis"]
+from __future__ import annotations
+
+__all__ = ["TaskResult", "TaskStatus", "DescribedAnalysis", "ElogSummaryPlots"]
 __author__ = "Gabriel Dorlhiac"
 
-from typing import Any, List, Dict, Optional
+import io
+from typing import Any, List, Dict, Optional, Union, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum
 
-from ..io.models.base import TaskParameters
+if TYPE_CHECKING:
+    from lute.io.models.base import TaskParameters
+else:
+    from lute.io.parameters import TaskParameters
+from lute.io.parameters import RowIds
+
+
+@dataclass
+class TaskParametersDBReference:
+    """Contains information about how to reconstruct a TaskParameters object.
+
+    Attributes:
+        db_dir (str): The path to the database containing the TaskParameters
+            schema definition.
+
+        row_ids (RowIds): The ids of the rows in the various tables required for
+            reconstructing the TaskParameters object.
+    """
+
+    db_dir: str
+    row_ids: RowIds
 
 
 class TaskStatus(Enum):
@@ -62,28 +85,73 @@ class TaskResult:
 
         task_status (TaskStatus): Status of associated task.
 
-        summary (str): Short message/summary associated with the result.
+        summary (Any): Short (usually text message) summary associated with the result.
 
         payload (Any): Actual result. May be data in any format.
 
-        impl_schemas (str): A string listing `Task` schemas implemented by the
-            associated `Task`. Schemas define the category and expected output
-            of the `Task`. An individual task may implement/conform to multiple
-            schemas. Multiple schemas are separated by ';', e.g.
+        impl_schemas (Optional[str]): A string listing `Task` schemas implemented
+            by the associated `Task`. Schemas define the category and expected
+            output of the `Task`. An individual task may implement/conform to
+            multiple schemas. Multiple schemas are separated by ';', e.g.
                 * impl_schemas = "schema1;schema2"
     """
 
     task_name: str
     task_status: TaskStatus
-    summary: str
+    summary: Any
     payload: Any
     impl_schemas: Optional[str] = None
 
 
+class BaseSchema(int, Enum):
+    NONE = 0
+    HDF5 = 1
+
+
+@dataclass
+class ElogSummaryPlots:
+    """Holds a graphical summary intended for display in the eLog.
+
+    Converts figures to a byte stream of HTML data to be written out, so the
+    eLog can properly display them.
+
+    Attributes:
+        display_name (str): This represents both a path and how the result will be
+            displayed in the eLog. Can include "/" characters. E.g.
+            `display_name = "scans/my_motor_scan"` will have plots shown
+            on a "my_motor_scan" page, under a "scans" tab. This format mirrors
+            how the file is stored on disk as well.
+
+        figures (pn.Tabs, hv.Image, plt.Figure, bytes): The figures to be
+            displayed. Except panel/holoviews (bokeh backend) and matplotlib
+            plots as well as a raw series of bytes for the HTML file. Figures from
+            the plotting libraries will be converted to an HTML byte stream
+            automatically.
+    """
+
+    display_name: str
+    figures: Union[pn.Tabs, hv.Image, plt.Figure, bytes]  # type: ignore # noqa: F821
+
+    def __post_init__(self) -> None:
+        self._setup_figures()
+
+    def _setup_figures(self) -> None:
+        """Convert figures to an HTML file in a byte stream."""
+
+        if hasattr(self.figures, "save"):
+            f: io.BytesIO = io.BytesIO()
+            self.figures.save(f)
+            f.seek(0)
+            self.figures = f.read()
+
+
 @dataclass
 class DescribedAnalysis:
+    """Complete analysis description. Held by an Executor."""
+
     task_result: TaskResult
-    task_parameters: TaskParameters
+    task_parameters: Optional[TaskParameters]
     task_env: Dict[str, str]
+    executor_name: str
     poll_interval: float
     communicator_desc: List[str]
